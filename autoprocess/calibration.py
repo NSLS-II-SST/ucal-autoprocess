@@ -109,7 +109,7 @@ def debugAssignment(ds, attr, states, ph_fwhm, line_names, assignment="nsls", **
     peak_ph_vals, _peak_heights = mass.algorithms.find_local_maxima(ds.getAttr(attr, indsOrStates=states), ph_fwhm)
 
 
-def ds_learnCalibrationPlanByPeaks(self, attr, states, ph_fwhm, line_names, assignment="nsls", **kwargs):
+def ds_learnCalibrationPlanFromEnergiesAndPeaks(self, attr, states, ph_fwhm, line_names, assignment="nsls", **kwargs):
     peak_positions, _peak_heights = mass.algorithms.find_local_maxima(self.getAttr(attr, indsOrStates=states), ph_fwhm)
     if assignment == "nsls":
         name_or_e, e_out, assignment, rms = assignPeaks(peak_positions,
@@ -130,7 +130,7 @@ def ds_learnCalibrationPlanByPeaks(self, attr, states, ph_fwhm, line_names, assi
             self.calibrationPlanAddPoint(ph, name, states=states, energy=energy)
     return e_out, assignment, rms
 
-mass.off.Channel.learnCalibrationPlanByPeaks = ds_learnCalibrationPlanByPeaks
+mass.off.Channel.learnCalibrationPlanFromEnergiesAndPeaks = ds_learnCalibrationPlanFromEnergiesAndPeaks
 
 
 def data_calibrationLoadFromHDF5Simple(self, h5name, recipeName='energy'):
