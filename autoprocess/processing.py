@@ -81,7 +81,7 @@ def data_is_corrected(data):
     """
     try:
         ds = data.firstGoodChannel()
-        return hasattr(ds, "filtValueDC")
+        return "filtValueDC" in ds.recipes.keys()
     except Exception as e:
         print(f"Failed to check corrections: {str(e)}")
         return False
