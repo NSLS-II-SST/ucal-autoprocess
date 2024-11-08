@@ -7,6 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import h5py
 
+
 cal_line_master = {
     "ck": 278.21,
     "nk": 392.25,
@@ -158,7 +159,7 @@ def ds_learnCalibrationPlanFromEnergiesAndPeaks(
 
     self.calibrationPlanInit(attr)
     for ph, name in zip(assignment, name_or_e):
-        if type(name) == str:
+        if type(name) is str:
             self.calibrationPlanAddPoint(ph, name, states=states)
         else:
             energy = name
@@ -403,19 +404,17 @@ def plot_ds_calibration(ds, state, line_energies, axlist, legend=True):
         ax.legend()
 
 
-def summarize_calibration(calinfo, overwrite=False):
+def summarize_calibration(data, state, line_names, savedir, overwrite=False):
     """
     Should try to produce an overall summary
     Also, splitting into panels sometimes makes it hard to figure out if we are globally misaligned
     """
-    savedir = calinfo.savefile[:-4] + "_summary"
     print(f"Saving summaries to {savedir}")
     if not os.path.exists(savedir):
         os.makedirs(savedir)
-    line_names = calinfo.line_names
     line_energies = get_line_energies(line_names)
     nstack = 8
-    naxes = len(calinfo.line_names)
+    naxes = len(line_names)
     bigfig = CalFigure(
         line_names,
         line_energies,
@@ -424,7 +423,7 @@ def summarize_calibration(calinfo, overwrite=False):
     )
     fig = CalFigure(line_names, line_energies)
     startchan = 1
-    for n, chan in enumerate(calinfo.data):
+    for n, chan in enumerate(data):
         if chan > startchan + nstack - 1:
             filename = f"cal_{startchan}_to_{startchan + nstack - 1}.png"
             savename = os.path.join(savedir, filename)
@@ -435,9 +434,9 @@ def summarize_calibration(calinfo, overwrite=False):
             fig = CalFigure(line_names, line_energies)
             startchan = startchan + nstack
 
-        ds = calinfo.data[chan]
-        bigfig.plot_ds_calibration(ds, calinfo.state, legend=False)
-        fig.plot_ds_calibration(ds, calinfo.state)
+        ds = data[chan]
+        bigfig.plot_ds_calibration(ds, state, legend=False)
+        fig.plot_ds_calibration(ds, state)
         lastchan = chan
         # work in progress
     bigfig.save(os.path.join(savedir, "cal_summary_all_chan.png"))

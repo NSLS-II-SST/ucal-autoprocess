@@ -1,17 +1,13 @@
-import mass
 import numpy as np
 from mass.off import ChannelGroup, getOffFileListFromOneFile
-from tiled.client import from_uri
-from os.path import dirname, join, exists, basename
+from os.path import dirname
 import os
-from .utils import (
-    get_tes_state,
-    get_filename,
-    get_tes_arrays,
-    get_model_file,
-    get_line_names,
-    get_calibration_filename,
-    get_samplename,
+from .utils import get_tes_state, get_filename, get_tes_arrays, get_savename
+from .processing import (
+    drift_correct_run,
+    calibrate_run,
+    run_is_calibrated,
+    run_is_corrected,
 )
 
 
@@ -49,7 +45,7 @@ def handle_run(uid, catalog, save_directory):
         return False
 
     # Get data files
-
+    data = get_data(run)
     # Handle calibration runs first
     if run.start.get("scantype", "") == "calibration":
         return handle_calibration_run(run, data, catalog, save_directory)
@@ -77,34 +73,11 @@ def handle_calibration_run(run, data, catalog, save_directory):
     bool
         True if processing succeeded
     """
-    state = get_tes_state(run)
+    drift_correct_run(run, data, save_directory)
+    calibrate_run(run, data, save_directory)
+    save_processed_data(run, data, save_directory)
 
-    # Apply corrections
-    model_path = get_model_file(run, catalog)
-    data.add5LagRecipes(model_path)
-    data.learnDriftCorrection(
-        indicatorName="pretriggerMean",
-        uncorrectedName="filtValue5Lag",
-        correctedName="filtValue5LagDC",
-        states=state,
-    )
-
-    # Phase correct and calibrate
-    line_names = get_line_names(run)
-    data.calibrate(state, line_names, "filtValue5LagDC")
-    data.learnPhaseCorrection(
-        "filtPhase",
-        "filtValue5LagDC",
-        "filtValue5LagDCPC",
-        states=state,
-        overwriteRecipe=True,
-    )
-    h5name = get_calibration_filename(run)
-    data.calibrationSaveToHDF5Simple(h5name, recipeName="energy")
-    # Save processed data
-    save_calibration_data(run, data, state, save_directory)
-
-    return True
+    return data
 
 
 def handle_science_run(run, data, catalog, save_directory):
@@ -139,22 +112,14 @@ def handle_science_run(run, data, catalog, save_directory):
 
     # Save processed data
     state = get_tes_state(run)
-    save_science_data(run, data, state, save_directory)
+    save_processed_data(run, data, state, save_directory)
 
     return True
 
 
-def save_calibration_data(run, data, state, save_directory):
+def save_processed_data(run, data, state, save_directory):
     """Save processed calibration data"""
-    savename = get_savename(run, save_directory)
-    os.makedirs(dirname(savename), exist_ok=True)
-
-    ts, e, ch = get_tes_arrays(data, state)
-    np.savez(savename, timestamps=ts, energies=e, channels=ch)
-
-
-def save_science_data(run, data, state, save_directory):
-    """Save processed science data"""
+    state = get_tes_state(run)
     savename = get_savename(run, save_directory)
     os.makedirs(dirname(savename), exist_ok=True)
 

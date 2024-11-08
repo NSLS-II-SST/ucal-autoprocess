@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=45", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ucal-autoprocess"
+version = "0.1.0"
+description = "Automated processing tools for uCAL TES data"
+readme = "README.md"
+requires-python = ">=3.8"
+license = "BSD-3-Clause"
+authors = [
+    { name = "NSLS-II SST Beamline Staff", email = "sst@bnl.gov" }
+]
+dependencies = [
+    "numpy",
+    "matplotlib",
+    "h5py",
+    "tiled",
+    "mass",  # Local dependency
+    "ucalpost",  # Local dependency
+]
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "flake8",
+]

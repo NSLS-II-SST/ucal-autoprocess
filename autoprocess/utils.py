@@ -2,6 +2,29 @@
 
 import numpy as np
 from os.path import dirname, join, basename
+import datetime
+
+
+def get_proposal_path(run):
+    proposal = run.start.get("proposal", {}).get("proposal_id", None)
+    is_commissioning = (
+        "commissioning" in run.start.get("proposal", {}).get("type", "").lower()
+    )
+    cycle = run.start.get("cycle", None)
+    if proposal is None or cycle is None:
+        raise ValueError("Proposal Metadata not Loaded")
+    if is_commissioning:
+        proposal_path = f"/nsls2/data/sst/proposals/commissioning/pass-{proposal}/"
+    else:
+        proposal_path = f"/nsls2/data/sst/proposals/{cycle}/pass-{proposal}/"
+    return proposal_path
+
+
+def get_processed_path(run):
+    proposal_path = get_proposal_path(run)
+
+    export_path = join(proposal_path, "processing", "ucal-1")
+    return export_path
 
 
 def get_config_dict(run):
@@ -41,14 +64,6 @@ def get_tes_state(run):
 
 def get_samplename(run):
     return run.start.get("sample_name", "")
-
-
-def get_calibration_filename(run):
-    off_filename = get_filename(run)
-    state = get_tes_state(run)
-    savebase = "_".join(basename(off_filename).split("_")[:-1])
-    savename = f"{savebase}_{state}_cal.hdf5"
-    return savename
 
 
 def get_model_file(run, catalog):
@@ -125,12 +140,18 @@ def get_savename(run, save_directory):
     str
         Full path for saving data
     """
-    filename = get_filename(run, convert_local=False)
+    filename = get_filename(run)
     date = filename.split("/")[-3]
     tes_prefix = "_".join(basename(filename).split("_")[:2])
     state = get_tes_state(run)
     scanid = run.start["scan_id"]
     return join(save_directory, date, f"{tes_prefix}_{state}_scan_{scanid}.npz")
+
+
+def get_processing_directory(run, save_directory):
+    savebase = get_savename(run, save_directory)[:-4]
+    savename = f"{savebase}_processing"
+    return savename
 
 
 def get_tes_arrays(data, state, attr="energy"):
@@ -174,69 +195,3 @@ def get_tes_arrays(data, state, attr="energy"):
     sort_idx = np.argsort(ts_arr)
 
     return ts_arr[sort_idx], en_arr[sort_idx], ch_arr[sort_idx]
-
-
-def run_is_corrected(data):
-    """
-    Check if run data has drift corrections applied.
-
-    Parameters
-    ----------
-    data : ChannelGroup
-        TES data to check
-
-    Returns
-    -------
-    bool
-        True if corrections are applied
-    """
-    try:
-        ds = data.firstGoodChannel()
-        return hasattr(ds, "filtValue5LagDC")
-    except Exception as e:
-        print(f"Failed to check corrections: {str(e)}")
-        return False
-
-
-def run_is_phase_corrected(data):
-    """
-    Check if run data has phase corrections applied.
-
-    Parameters
-    ----------
-    data : ChannelGroup
-        TES data to check
-
-    Returns
-    -------
-    bool
-        True if phase corrections are applied
-    """
-    try:
-        ds = data.firstGoodChannel()
-        return hasattr(ds, "filtValue5LagDCPC")
-    except Exception as e:
-        print(f"Failed to check phase correction: {str(e)}")
-        return False
-
-
-def run_is_calibrated(data):
-    """
-    Check if run data is calibrated.
-
-    Parameters
-    ----------
-    data : ChannelGroup
-        TES data to check
-
-    Returns
-    -------
-    bool
-        True if data is calibrated
-    """
-    try:
-        ds = data.firstGoodChannel()
-        return hasattr(ds, "energy")
-    except Exception as e:
-        print(f"Failed to check calibration: {str(e)}")
-        return False
