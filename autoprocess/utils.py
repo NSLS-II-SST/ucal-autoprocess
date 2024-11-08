@@ -189,7 +189,7 @@ def get_correction_file(run, save_directory, make_dirs=False):
     dc_dir = get_processing_directory(run, save_directory)
     if make_dirs:
         os.makedirs(dc_dir, exist_ok=True)
-    dc_name = join(dc_dir, "drift_correction.hdf5")
+    dc_name = join(dc_dir, "drift_correction.pkl")
     return dc_name
 
 
@@ -197,7 +197,7 @@ def get_calibration_file(run, save_directory, make_dirs=False):
     cal_dir = get_processing_directory(run, save_directory)
     if make_dirs:
         os.makedirs(cal_dir, exist_ok=True)
-    cal_name = join(cal_dir, "drift_correction.hdf5")
+    cal_name = join(cal_dir, "calibration.hdf5")
     return cal_name
 
 
