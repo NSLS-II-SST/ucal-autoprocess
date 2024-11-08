@@ -11,12 +11,13 @@ import os
 
 def correct_run(run, data, save_directory=None):
     state = get_tes_state(run)
-    data.learnResidualStdDevCut(states=[state])
+    data.learnResidualStdDevCut(states=[state], overwriteRecipe=True)
     data.learnDriftCorrection(
         indicatorName="pretriggerMean",
         uncorrectedName="filtValue",
         correctedName="filtValueDC",
         states=state,
+        overwriteRecipe=True,
     )
     if save_directory is not None:
         dc_name = get_correction_file(run, save_directory, make_dirs=True)
@@ -30,7 +31,8 @@ def load_correction(run, data, save_directory):
         try:
             data.loadRecipeBooks(dc_name)
             return True
-        except:
+        except Exception as e:
+            print(f"Got error loading correction: {e}")
             return False
     else:
         return False
@@ -56,7 +58,8 @@ def load_calibration(run, data, save_directory):
         try:
             data.calibrationLoadFromHDF5Simple(h5name, recipeName="energy")
             return True
-        except:
+        except Exception as e:
+            print(f"Got error loading calibration: {e}")
             return False
     else:
         return False
