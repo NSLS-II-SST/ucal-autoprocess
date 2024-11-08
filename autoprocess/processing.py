@@ -15,7 +15,7 @@ def drift_correct_run(run, data, save_directory=None):
     if save_directory is not None:
         dc_dir = get_processing_directory(run, save_directory)
         dc_name = join(dc_dir, "drift_correction.hdf5")
-        data.saveRecipeBook(dc_name)
+        data.saveRecipeBooks(dc_name)
     return data
 
 

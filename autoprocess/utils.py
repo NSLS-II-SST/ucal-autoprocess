@@ -31,19 +31,49 @@ def get_config_dict(run):
     return run.primary.descriptors[0]["configuration"]["tes"]["data"]
 
 
-def get_noise_uid(run, catalog):
-    noise_uid = get_config_dict(run)["tes_noise_uid"]
-    return noise_uid
+def get_noise_uid(run):
+    config = get_config_dict(run)
+    if "tes_noise_uid" not in config:
+        raise KeyError("No noise UID found in run metadata")
+    return config["tes_noise_uid"]
 
 
-def get_projector_uid(run, catalog):
-    projectors_uid = get_config_dict(run)["tes_projector_uid"]
-    return projectors_uid
+def get_noise(run, catalog):
+    uid = get_noise_uid(run)
+    try:
+        return catalog[uid]
+    except KeyError:
+        raise KeyError(f"Noise run with UID {uid} not found in catalog")
 
 
-def get_calibration_uid(run, catalog):
-    noise_uid = get_config_dict(run)["tes_calibration_uid"]
-    return noise_uid
+def get_projector_uid(run):
+    config = get_config_dict(run)
+    if "tes_projector_uid" not in config:
+        raise KeyError("No projector UID found in run metadata")
+    return config["tes_projector_uid"]
+
+
+def get_projector(run, catalog):
+    uid = get_projector_uid(run)
+    try:
+        return catalog[uid]
+    except KeyError:
+        raise KeyError(f"Projector run with UID {uid} not found in catalog")
+
+
+def get_calibration_uid(run):
+    config = get_config_dict(run)
+    if "tes_calibration_uid" not in config:
+        raise KeyError("No calibration UID found in run metadata")
+    return config["tes_calibration_uid"]
+
+
+def get_calibration(run, catalog):
+    uid = get_calibration_uid(run)
+    try:
+        return catalog[uid]
+    except KeyError:
+        raise KeyError(f"Calibration run with UID {uid} not found in catalog")
 
 
 def get_filename(run):
@@ -141,7 +171,7 @@ def get_savename(run, save_directory):
         Full path for saving data
     """
     filename = get_filename(run)
-    date = filename.split("/")[-3]
+    date = basename(filename).split("_")[0]
     tes_prefix = "_".join(basename(filename).split("_")[:2])
     state = get_tes_state(run)
     scanid = run.start["scan_id"]
