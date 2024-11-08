@@ -1,6 +1,7 @@
 from .utils import get_tes_state, get_processing_directory, get_line_names
 from .calibration import summarize_calibration
 from os.path import join
+import os
 
 
 def drift_correct_run(run, data, save_directory=None):
@@ -14,6 +15,7 @@ def drift_correct_run(run, data, save_directory=None):
     )
     if save_directory is not None:
         dc_dir = get_processing_directory(run, save_directory)
+        os.makedirs(dc_dir, exist_ok=True)
         dc_name = join(dc_dir, "drift_correction.hdf5")
         data.saveRecipeBooks(dc_name)
     return data
@@ -27,6 +29,7 @@ def calibrate_run(run, data, save_directory=None):
 
     if save_directory is not None:
         cal_dir = get_processing_directory(run, save_directory)
+        os.makedirs(cal_dir, exist_ok=True)
         h5name = join(cal_dir, "calibration.hdf5")
         data.calibrationSaveToHDF5Simple(h5name, recipeName="energy")
         summarize_calibration(data, state, line_names, cal_dir, overwrite=True)

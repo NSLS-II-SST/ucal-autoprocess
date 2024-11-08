@@ -252,12 +252,31 @@ def data_calibrate(
             )
             if rms < rms_cutoff:
                 print(f"Calibrating {ds.channum} succeeded with rms: {rms}")
+                calibration = mass.EnergyCalibration(
+                    curvetype="gain", approximate=False
+                )
+                calibration.uncalibratedName = fv
+                for e, ph, line_name in zip(e_out, peaks, line_names):
+                    calibration.add_cal_point(ph, e, str(line_name))
+                ds.recipes.add(
+                    recipeName,
+                    calibration,
+                    [calibration.uncalibratedName],
+                    overwrite=True,
+                )
+            else:
+                msg = f"Failed calibration cut with RMS: {rms}, cutoff: {rms_cutoff}"
+                print(msg)
+                ds.markBad(msg)
+                continue
         except ValueError:
             print("Chan {ds.channum} failed peak assignment")
             ds.markBad("Failed peak assignment")
 
-    # self.alignToReferenceChannel(ds, fv, np.arange(1000, 27000,  10))
-    self.calibrateFollowingPlan(
+        # self.alignToReferenceChannel(ds, fv, np.arange(1000, 27000,  10))
+
+
+"""    self.calibrateFollowingPlan(
         fv, calibratedName=recipeName, dlo=7, dhi=7, overwriteRecipe=True
     )
     for ds in self.values():
@@ -282,7 +301,7 @@ def data_calibrate(
             ds.markBad(
                 "ValueError on energy access, calibration curve is probably broken"
             )
-
+"""
 
 mass.off.ChannelGroup.calibrate = data_calibrate
 
