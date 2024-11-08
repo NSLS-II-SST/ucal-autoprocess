@@ -2,10 +2,19 @@ import numpy as np
 from mass.off import ChannelGroup, getOffFileListFromOneFile
 from os.path import dirname
 import os
-from .utils import get_tes_state, get_filename, get_tes_arrays, get_savename
+from .utils import (
+    get_tes_state,
+    get_filename,
+    get_tes_arrays,
+    get_savename,
+    get_calibration,
+)
+
 from .processing import (
-    drift_correct_run,
+    correct_run,
     calibrate_run,
+    load_calibration,
+    load_correction,
     run_is_calibrated,
     run_is_corrected,
 )
@@ -73,7 +82,8 @@ def handle_calibration_run(run, data, catalog, save_directory):
     bool
         True if processing succeeded
     """
-    drift_correct_run(run, data, save_directory)
+
+    correct_run(run, data, save_directory)
     calibrate_run(run, data, save_directory)
     save_processed_data(run, data, save_directory)
 
@@ -100,24 +110,23 @@ def handle_science_run(run, data, catalog, save_directory):
     bool
         True if processing succeeded
     """
-    # TODO: Find corresponding calibration run
-    # cal_run = find_calibration_run(run, catalog)
+    # Find the last calibration run
+    cal_run = get_calibration(run, catalog)
+    if load_correction(cal_run, data, save_directory) and load_calibration(
+        cal_run, data, save_directory
+    ):
+        pass
+    else:
+        handle_calibration_run(cal_run, data, catalog, save_directory)
 
-    # TODO: Check if calibration is processed, process if needed
-    # if not is_calibration_processed(cal_run):
-    #     handle_run(cal_run.start['uid'], catalog, save_directory)
-
-    # TODO: Apply calibration to science data
-    # apply_calibration(data, cal_run)
-
-    # Save processed data
-    state = get_tes_state(run)
-    save_processed_data(run, data, state, save_directory)
-
-    return True
+    if run_is_corrected(run) and run_is_calibrated(run):
+        save_processed_data(run, data, save_directory)
+        return True
+    else:
+        return False
 
 
-def save_processed_data(run, data, state, save_directory):
+def save_processed_data(run, data, save_directory):
     """Save processed calibration data"""
     state = get_tes_state(run)
     savename = get_savename(run, save_directory)

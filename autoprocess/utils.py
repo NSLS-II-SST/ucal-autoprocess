@@ -3,6 +3,7 @@
 import numpy as np
 from os.path import dirname, join, basename
 import datetime
+import os
 
 
 def get_proposal_path(run):
@@ -182,6 +183,22 @@ def get_processing_directory(run, save_directory):
     savebase = get_savename(run, save_directory)[:-4]
     savename = f"{savebase}_processing"
     return savename
+
+
+def get_correction_file(run, save_directory, make_dirs=False):
+    dc_dir = get_processing_directory(run, save_directory)
+    if make_dirs:
+        os.makedirs(dc_dir, exist_ok=True)
+    dc_name = join(dc_dir, "drift_correction.hdf5")
+    return dc_name
+
+
+def get_calibration_file(run, save_directory, make_dirs=False):
+    cal_dir = get_processing_directory(run, save_directory)
+    if make_dirs:
+        os.makedirs(cal_dir, exist_ok=True)
+    cal_name = join(cal_dir, "drift_correction.hdf5")
+    return cal_name
 
 
 def get_tes_arrays(data, state, attr="energy"):
