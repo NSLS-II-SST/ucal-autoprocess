@@ -15,8 +15,8 @@ from .processing import (
     calibrate_run,
     load_calibration,
     load_correction,
-    run_is_calibrated,
-    run_is_corrected,
+    data_is_calibrated,
+    data_is_corrected,
 )
 
 
@@ -119,7 +119,7 @@ def handle_science_run(run, data, catalog, save_directory):
     else:
         handle_calibration_run(cal_run, data, catalog, save_directory)
 
-    if run_is_corrected(run) and run_is_calibrated(run):
+    if data_is_corrected(data) and data_is_calibrated(data):
         save_processed_data(run, data, save_directory)
         return True
     else:

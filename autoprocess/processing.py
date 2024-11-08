@@ -62,7 +62,7 @@ def load_calibration(run, data, save_directory):
         return False
 
 
-def run_is_corrected(data):
+def data_is_corrected(data):
     """
     Check if run data has drift corrections applied.
 
@@ -84,7 +84,7 @@ def run_is_corrected(data):
         return False
 
 
-def run_is_calibrated(data):
+def data_is_calibrated(data):
     """
     Check if run data is calibrated.
 
