@@ -82,8 +82,12 @@ def handle_calibration_run(run, data, catalog, save_directory):
     bool
         True if processing succeeded
     """
+    scan_id = run.start.get("scan_id", "")
 
+    print(f"Handling Calibration Run for scan {scan_id}")
+    print("Correcting data")
     correct_run(run, data, save_directory)
+    print(f"Calibrating Scan {scan_id}")
     calibrate_run(run, data, save_directory)
     save_processed_data(run, data, save_directory)
 
@@ -111,18 +115,24 @@ def handle_science_run(run, data, catalog, save_directory):
         True if processing succeeded
     """
     # Find the last calibration run
+
+    scan_id = run.start.get("scan_id", "")
     cal_run = get_calibration(run, catalog)
+    cal_id = cal_run.start.get("scan_id", "")
+    print(f"Handling science data for scan {scan_id}, with cal from scan {cal_id}")
     if load_correction(cal_run, data, save_directory) and load_calibration(
         cal_run, data, save_directory
     ):
-        pass
+        print("Correction and Calibration loaded successfully")
     else:
+        print("Loading Calibration Data")
         handle_calibration_run(cal_run, data, catalog, save_directory)
 
     if data_is_corrected(data) and data_is_calibrated(data):
         save_processed_data(run, data, save_directory)
         return True
     else:
+        print(f"Data was not fully processed for scan {scan_id}")
         return False
 
 
@@ -130,6 +140,8 @@ def save_processed_data(run, data, save_directory):
     """Save processed calibration data"""
     state = get_tes_state(run)
     savename = get_savename(run, save_directory)
+    scan_id = run.start.get("scan_id", "")
+    print(f"Saving data for scan {scan_id} to {save_directory}")
     os.makedirs(dirname(savename), exist_ok=True)
 
     ts, e, ch = get_tes_arrays(data, state)

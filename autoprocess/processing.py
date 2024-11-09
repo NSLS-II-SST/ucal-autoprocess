@@ -11,6 +11,7 @@ import os
 
 def correct_run(run, data, save_directory=None):
     state = get_tes_state(run)
+    print(f"Correcting data for {state}")
     data.learnResidualStdDevCut(states=[state], overwriteRecipe=True)
     data.learnDriftCorrection(
         indicatorName="pretriggerMean",
@@ -21,12 +22,14 @@ def correct_run(run, data, save_directory=None):
     )
     if save_directory is not None:
         dc_name = get_correction_file(run, save_directory, make_dirs=True)
+        print(f"Saving corrections to {dc_name}")
         data.saveRecipeBooks(dc_name)
     return data
 
 
 def load_correction(run, data, save_directory):
     dc_name = get_correction_file(run, save_directory)
+    print(f"Loading correction from {dc_name}")
     if exists(dc_name):
         try:
             data.loadRecipeBooks(dc_name)
@@ -42,11 +45,14 @@ def calibrate_run(run, data, save_directory=None):
     # Phase correct and calibrate
     line_names = get_line_names(run)
     state = get_tes_state(run)
+    print(f"Calibrating {state} with lines {line_names}")
+
     data.calibrate(state, line_names, "filtValueDC")
 
     if save_directory is not None:
         h5name = get_calibration_file(run, save_directory, make_dirs=True)
         cal_dir = dirname(h5name)
+        print(f"Saving calibration to {h5name}")
         data.calibrationSaveToHDF5Simple(h5name, recipeName="energy")
         summarize_calibration(data, state, line_names, cal_dir, overwrite=True)
     return data
@@ -54,7 +60,9 @@ def calibrate_run(run, data, save_directory=None):
 
 def load_calibration(run, data, save_directory):
     h5name = get_calibration_file(run, save_directory)
+
     if exists(h5name):
+        print(f"Loading correction from {h5name}")
         try:
             data.calibrationLoadFromHDF5Simple(h5name, recipeName="energy")
             return True
@@ -62,6 +70,7 @@ def load_calibration(run, data, save_directory):
             print(f"Got error loading calibration: {e}")
             return False
     else:
+        print(f"No calibration exists at {h5name} yet")
         return False
 
 
