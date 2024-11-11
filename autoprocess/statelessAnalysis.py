@@ -146,3 +146,27 @@ def save_processed_data(run, data, save_directory):
 
     ts, e, ch = get_tes_arrays(data, state)
     np.savez(savename, timestamps=ts, energies=e, channels=ch)
+
+
+def get_tes_data(run):
+    """
+    rois : dictionary of {roi_name: (llim, ulim)}
+    """
+    d = scandata_from_run(run)
+    rois = {}
+    for key in run.primary.descriptors[0]["data_keys"]:
+        if "tes_mca" in key and key not in rois and key != "tes_mca_spectrum":
+            llim = "llim" in run.primary.descriptors[0]["data_keys"][key].get(
+                "llim", 200
+            )
+            ulim = "ulim" in run.primary.descriptors[0]["data_keys"][key].get(
+                "ulim", 2000
+            )
+            rois[key] = [llim, ulim]
+
+    tes_data = {}
+    for roi in rois:
+        llim, ulim = rois[roi]
+        y, x = d.getScan1d(llim, ulim, channels=channels)
+        tes_data[roi] = y
+    return rois, tes_data

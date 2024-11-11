@@ -1,7 +1,7 @@
 """Utility functions for TES data processing."""
 
 import numpy as np
-from os.path import dirname, join, basename
+from os.path import dirname, join, basename, exists
 import datetime
 import os
 
@@ -80,6 +80,15 @@ def get_calibration(run, catalog):
 def get_filename(run):
     filename = get_config_dict(run)["tes_filename"]
     return filename
+
+
+def get_logname(run):
+    config = get_config_dict(run)
+    state_str = "calibration" if config["tes_cal_flag"] else "scan"
+    scan_num = config["tes_scan_num"]
+    filebase = dirname(get_filename(run))
+    filename = f"{state_str}{scan_num:0=4d}.json"
+    return join(filebase, "logs", filename)
 
 
 def get_tes_state(run):
@@ -177,6 +186,11 @@ def get_savename(run, save_directory):
     state = get_tes_state(run)
     scanid = run.start["scan_id"]
     return join(save_directory, date, f"{tes_prefix}_{state}_scan_{scanid}.npz")
+
+
+def run_is_processed(run, save_directory):
+    filename = get_savename(run, save_directory)
+    return exists(filename)
 
 
 def get_processing_directory(run, save_directory):
