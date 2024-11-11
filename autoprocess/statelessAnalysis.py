@@ -19,6 +19,8 @@ from .processing import (
     data_is_corrected,
 )
 
+from .scanData import scandata_from_run
+
 
 def get_data(run):
     filename = get_filename(run)
@@ -148,11 +150,11 @@ def save_processed_data(run, data, save_directory):
     np.savez(savename, timestamps=ts, energies=e, channels=ch)
 
 
-def get_tes_data(run):
+def get_tes_data(run, save_directory, logtype="run"):
     """
     rois : dictionary of {roi_name: (llim, ulim)}
     """
-    d = scandata_from_run(run)
+    d = scandata_from_run(run, save_directory, logtype)
     rois = {}
     for key in run.primary.descriptors[0]["data_keys"]:
         if "tes_mca" in key and key not in rois and key != "tes_mca_spectrum":
@@ -167,6 +169,6 @@ def get_tes_data(run):
     tes_data = {}
     for roi in rois:
         llim, ulim = rois[roi]
-        y, x = d.getScan1d(llim, ulim, channels=channels)
+        y, x = d.getScan1d(llim, ulim)
         tes_data[roi] = y
     return rois, tes_data
