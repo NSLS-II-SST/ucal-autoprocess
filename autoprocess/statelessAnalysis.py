@@ -158,12 +158,8 @@ def get_tes_data(run, save_directory, logtype="run"):
     rois = {}
     for key in run.primary.descriptors[0]["data_keys"]:
         if "tes_mca" in key and key not in rois and key != "tes_mca_spectrum":
-            llim = "llim" in run.primary.descriptors[0]["data_keys"][key].get(
-                "llim", 200
-            )
-            ulim = "ulim" in run.primary.descriptors[0]["data_keys"][key].get(
-                "ulim", 2000
-            )
+            llim = run.primary.descriptors[0]["data_keys"][key].get("llim", 200)
+            ulim = run.primary.descriptors[0]["data_keys"][key].get("ulim", 2000)
             rois[key] = [llim, ulim]
 
     tes_data = {}
