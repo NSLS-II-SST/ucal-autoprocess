@@ -189,7 +189,13 @@ def get_savename(run, save_directory):
 
 
 def run_is_processed(run, save_directory):
-    filename = get_savename(run, save_directory)
+    try:
+        filename = get_savename(run, save_directory)
+    except:
+        print(
+            f"Could not find any TES file in {save_directory} for Run {run.start['scan_id']}"
+        )
+        return False
     return exists(filename)
 
 

@@ -156,7 +156,7 @@ def get_tes_data(run, save_directory, logtype="run"):
     """
     d = scandata_from_run(run, save_directory, logtype)
     rois = {}
-    for key in run.primary.descriptors[0]["data_keys"]:
+    for key in run.primary.descriptors[0]["object_keys"]["tes"]:
         if "tes_mca" in key and key not in rois and key != "tes_mca_spectrum":
             llim = run.primary.descriptors[0]["data_keys"][key].get("llim", 200)
             ulim = run.primary.descriptors[0]["data_keys"][key].get("ulim", 2000)
@@ -167,4 +167,12 @@ def get_tes_data(run, save_directory, logtype="run"):
         llim, ulim = rois[roi]
         y, x = d.getScan1d(llim, ulim)
         tes_data[roi] = y
+    # Kludge for certain older data, and non-XAS data that was still scanning the energy
+    if "tes_mca_pfy" not in rois:
+        if d.log.motor_name == "en_energy":
+            llim = min(d.log.motor_vals)
+            ulim = max(d.log.motor_vals)
+            y, x = d.getScan1d(llim, ulim)
+            rois["tes_mca_pfy"] = [llim, ulim]
+            tes_data["tes_mca_pfy"] = y
     return rois, tes_data
