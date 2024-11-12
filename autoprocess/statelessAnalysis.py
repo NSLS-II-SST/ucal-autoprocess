@@ -54,9 +54,16 @@ def handle_run(uid, catalog, save_directory):
     if "tes" not in run.start.get("detectors", []):
         print("No TES in run, skipping!")
         return False
+    if run.start.get("scantype", "") in ["noise", "projectors"]:
+        print("Nothing to be done for Noise or Projectors")
+        return False
 
     # Get data files
-    data = get_data(run)
+    try:
+        data = get_data(run)
+    except:
+        print(f"Could not find or load TES .off files for {run.start['scan_id']}")
+        return False
     # Handle calibration runs first
     if run.start.get("scantype", "") == "calibration":
         return handle_calibration_run(run, data, catalog, save_directory)
