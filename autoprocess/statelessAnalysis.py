@@ -1,6 +1,6 @@
 import numpy as np
 from mass.off import ChannelGroup, getOffFileListFromOneFile
-from os.path import dirname
+from os.path import dirname, exists
 import os
 from .utils import (
     get_tes_state,
@@ -29,7 +29,7 @@ def get_data(run):
     return data
 
 
-def handle_run(uid, catalog, save_directory):
+def handle_run(uid, catalog, save_directory, reprocess=False, verbose=True):
     """
     Process a single run given its UID.
 
@@ -58,13 +58,22 @@ def handle_run(uid, catalog, save_directory):
         print("Nothing to be done for Noise or Projectors")
         return False
 
+    if not reprocess:
+        savename = get_savename(run, save_directory)
+        if exists(savename):
+            print(f"TES Already processed to {savename}, will not reprocess")
+            return True
     # Get data files
     try:
+        print(f"Loading TES Data from {get_filename(run)}")
         data = get_data(run)
+        print("TES Data loaded")
     except:
         print(f"Could not find or load TES .off files for {run.start['scan_id']}")
         return False
     # Handle calibration runs first
+    data.verbose = verbose
+
     if run.start.get("scantype", "") == "calibration":
         return handle_calibration_run(run, data, catalog, save_directory)
     else:
