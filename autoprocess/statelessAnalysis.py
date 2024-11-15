@@ -2,6 +2,8 @@ import numpy as np
 from mass.off import ChannelGroup, getOffFileListFromOneFile
 from os.path import dirname, exists
 import os
+import h5py
+
 from .utils import (
     get_tes_state,
     get_filename,
@@ -59,7 +61,11 @@ def handle_run(uid, catalog, save_directory, reprocess=False, verbose=True):
         return False
 
     if not reprocess:
-        savename = get_savename(run, save_directory)
+        try:
+            savename = get_savename(run, save_directory)
+        except Exception as e:
+            print(f"Could not get TES Filename: {e}")
+            return False
         if exists(savename):
             print(f"TES Already processed to {savename}, will not reprocess")
             return True
@@ -68,8 +74,8 @@ def handle_run(uid, catalog, save_directory, reprocess=False, verbose=True):
         print(f"Loading TES Data from {get_filename(run)}")
         data = get_data(run)
         print("TES Data loaded")
-    except:
-        print(f"Could not find or load TES .off files for {run.start['scan_id']}")
+    except Exception as e:
+        print(f"Error {e} for .off files for {run.start['scan_id']}")
         return False
     # Handle calibration runs first
     data.verbose = verbose
@@ -170,7 +176,7 @@ def get_tes_data(run, save_directory, logtype="run"):
     """
     rois : dictionary of {roi_name: (llim, ulim)}
     """
-    d = scandata_from_run(run, save_directory, logtype)
+    scan_data = scandata_from_run(run, save_directory, logtype)
     rois = {}
     for key in run.primary.descriptors[0]["object_keys"]["tes"]:
         if "tes_mca" in key and key not in rois and key != "tes_mca_spectrum":
@@ -181,14 +187,67 @@ def get_tes_data(run, save_directory, logtype="run"):
     tes_data = {}
     for roi in rois:
         llim, ulim = rois[roi]
-        y, x = d.getScan1d(llim, ulim)
+        y, x = scan_data.getScan1d(llim, ulim)
         tes_data[roi] = y
     # Kludge for certain older data, and non-XAS data that was still scanning the energy
     if "tes_mca_pfy" not in rois:
-        if d.log.motor_name == "en_energy":
-            llim = min(d.log.motor_vals)
-            ulim = max(d.log.motor_vals)
-            y, x = d.getScan1d(llim, ulim)
+        if scan_data.log.motor_name == "en_energy":
+            llim = min(scan_data.log.motor_vals)
+            ulim = max(scan_data.log.motor_vals)
+            y, x = scan_data.getScan1d(llim, ulim)
             rois["tes_mca_pfy"] = [llim, ulim]
             tes_data["tes_mca_pfy"] = y
     return rois, tes_data
+
+
+# Need to actually test/debug
+def save_2d_data(
+    run, save_directory, energy_range=(200, 2000), energy_step=0.3, logtype="run"
+):
+    """
+    Save 2D data (motor energy vs detector energy) to an HDF5 file.
+
+    Parameters
+    ----------
+    run : DataBroker run
+        Run to process
+    save_directory : str
+        Directory to save processed data
+    energy_range : tuple
+        (lower_limit, upper_limit) for detector energy range in eV
+    energy_step : float
+        Step size for detector energy binning in eV
+    logtype : str
+        Type of log data to use ('run' or 'json')
+
+    Returns
+    -------
+    str
+        Path to saved HDF5 file
+    """
+
+    scan_data = scandata_from_run(run, save_directory, logtype)
+    llim, ulim = energy_range
+
+    # Get 2D data
+    counts, mono_grid, energy_grid = scan_data.getScan2d(
+        llim=llim, ulim=ulim, eres=energy_step
+    )
+
+    # Create HDF5 filename
+    base_name = get_savename(run, save_directory)
+    h5_name = base_name.replace(".npz", "_rixs.h5")
+
+    # Save to HDF5
+    with h5py.File(h5_name, "w") as f:
+        f.create_dataset("counts", data=counts)
+        f.create_dataset("mono_energy", data=mono_grid)
+        f.create_dataset("detector_energy", data=energy_grid)
+
+        # Add metadata
+        f.attrs["scan_id"] = run.start.get("scan_id", "")
+        f.attrs["uid"] = run.start.get("uid", "")
+        f.attrs["sample_name"] = run.start.get("sample", "")
+        f.attrs["motor_name"] = scan_data.log.motor_name
+
+    return h5_name
