@@ -79,11 +79,17 @@ def handle_run(uid, catalog, save_directory, reprocess=False, verbose=True):
         return False
     # Handle calibration runs first
     data.verbose = verbose
-
-    if run.start.get("scantype", "") == "calibration":
-        return handle_calibration_run(run, data, catalog, save_directory)
-    else:
-        return handle_science_run(run, data, catalog, save_directory)
+    try:
+        if run.start.get("scantype", "") == "calibration":
+            r = handle_calibration_run(run, data, catalog, save_directory)
+        else:
+            r = handle_science_run(run, data, catalog, save_directory)
+    except Exception as e:
+        print(f"Error {e} while handling {run.start['uid']}")
+        r = False
+    for ds in data.values():
+        ds.offFile.close()
+    return r
 
 
 def handle_calibration_run(run, data, catalog, save_directory):
