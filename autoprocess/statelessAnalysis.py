@@ -87,6 +87,7 @@ def handle_run(uid, catalog, save_directory, reprocess=False, verbose=True):
     except Exception as e:
         print(f"Error {e} while handling {run.start['uid']}")
         r = False
+    print("Offloading TES Data Files")
     for ds in data.values():
         ds.offFile.close()
     return r

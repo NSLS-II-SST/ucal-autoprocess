@@ -149,7 +149,7 @@ def log_from_run(run):
     # acquire_time = run.primary.descriptors[0]['configuration']['tes']['data']['tes_acquire_time']
     acquire_time = run.primary["config"]["tes"]["tes_acquire_time"].read()[0]
     stop_time = start_time + acquire_time
-    if run.metadata["start"]["scantype"] in ["calibration", "xes"]:
+    if run.metadata["start"].get("scantype", "") in ["calibration", "xes"]:
         motor_name = "time"
         motor_vals = start_time
     else:
