@@ -243,7 +243,7 @@ def handle_science_run(run, data, catalog, save_directory):
     ):
         print("Loaded existing calibration")
         for ds in data.values():
-            if "energy" in ds.recipes:
+            if "energy" in ds.recipes.keys():
                 processing_info["calibrated_channels"] += 1
                 processing_info["calibration_status"][ds.channum] = "Loaded from file"
             else:
