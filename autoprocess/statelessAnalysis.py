@@ -54,6 +54,8 @@ def handle_run(uid, catalog, save_directory, reprocess=False, verbose=True):
         Dictionary containing processing information
     """
 
+    run = catalog[uid]
+
     processing_info = {
         "processed": False,
         "reason": "",
@@ -69,8 +71,6 @@ def handle_run(uid, catalog, save_directory, reprocess=False, verbose=True):
             "timestamp": run.start.get("time", ""),
         },
     }
-
-    run = catalog[uid]
 
     # Check if run contains TES data
     if "tes" not in run.start.get("detectors", []):
