@@ -174,7 +174,7 @@ def handle_calibration_run(run, data, catalog, save_directory):
     Returns
     -------
     dict
-        Processing information
+        Dictionary containing data_calibration_info with calibration processing information
     """
 
     scan_id = run.start.get("scan_id", "")
@@ -183,9 +183,21 @@ def handle_calibration_run(run, data, catalog, save_directory):
     print("Correcting data")
     correct_run(run, data, save_directory)
     print(f"Calibrating Scan {scan_id}")
-    processing_info = calibrate_run(run, data, save_directory)
+    cal_info = calibrate_run(run, data, save_directory)
     save_processed_data(run, data, save_directory)
 
+    processing_info = {
+        "data_calibration_info": {
+            "run_info": {
+                "uid": run.start.get("uid", ""),
+                "scan_id": run.start.get("scan_id", ""),
+                "sample_name": run.start.get("sample", ""),
+                "scantype": run.start.get("scantype", ""),
+                "timestamp": run.start.get("time", ""),
+            },
+            **cal_info,  # Include all calibration information
+        }
+    }
     processing_info["calibration_applied"] = True
 
     return processing_info
@@ -209,31 +221,33 @@ def handle_science_run(run, data, catalog, save_directory):
     Returns
     -------
     dict
-        Processing information
+        Dictionary containing either data_processing_info or both data_processing_info
+        and data_calibration_info if new calibration was performed
     """
-    processing_info = {
-        "total_channels": len(data),
-        "calibrated_channels": 0,
-        "calibration_status": {},
-        "run_info": {
-            "uid": run.start.get("uid", ""),
-            "scan_id": run.start.get("scan_id", ""),
-            "sample_name": run.start.get("sample", ""),
-            "scantype": run.start.get("scantype", ""),
-            "timestamp": run.start.get("time", ""),
-        },
-    }
-
     scan_id = run.start.get("scan_id", "")
     cal_run = get_calibration(run, catalog)
     cal_id = cal_run.start.get("scan_id", "")
 
-    processing_info["calibration_source"] = {
-        "uid": cal_run.start.get("uid", ""),
-        "scan_id": cal_id,
-        "sample_name": cal_run.start.get("sample", ""),
-        "scantype": cal_run.start.get("scantype", ""),
-        "timestamp": cal_run.start.get("time", ""),
+    processing_info = {
+        "data_processing_info": {
+            "run_info": {
+                "uid": run.start.get("uid", ""),
+                "scan_id": run.start.get("scan_id", ""),
+                "sample_name": run.start.get("sample", ""),
+                "scantype": run.start.get("scantype", ""),
+                "timestamp": run.start.get("time", ""),
+            },
+            "calibration_source": {
+                "uid": cal_run.start.get("uid", ""),
+                "scan_id": cal_id,
+                "sample_name": cal_run.start.get("sample", ""),
+                "scantype": cal_run.start.get("scantype", ""),
+                "timestamp": cal_run.start.get("time", ""),
+            },
+            "total_channels": len(data),
+            "calibrated_channels": 0,
+            "calibration_status": {},
+        }
     }
 
     print(f"Processing scan {scan_id} using calibration from scan {cal_id}")
@@ -244,25 +258,37 @@ def handle_science_run(run, data, catalog, save_directory):
         print("Loaded existing calibration")
         for ds in data.values():
             if "energy" in ds.recipes.keys():
-                processing_info["calibrated_channels"] += 1
-                processing_info["calibration_status"][ds.channum] = "Loaded from file"
+                processing_info["data_processing_info"]["calibrated_channels"] += 1
+                processing_info["data_processing_info"]["calibration_status"][
+                    ds.channum
+                ] = "Loaded from file"
             else:
-                processing_info["calibration_status"][ds.channum] = "Load failed"
+                processing_info["data_processing_info"]["calibration_status"][
+                    ds.channum
+                ] = "Load failed"
     else:
-        # Perform new calibration if loading failed
         print("Performing new calibration")
+        # Get calibration info and merge it with processing info
         cal_info = handle_calibration_run(cal_run, data, catalog, save_directory)
-        # Save and remove run info and calibration source before update
-        run_info = processing_info.pop("run_info")
-        calibration_source = processing_info.pop("calibration_source")
-        processing_info.update(cal_info)
-        # Restore run info and calibration source after update
-        processing_info["run_info"] = run_info
-        processing_info["calibration_source"] = calibration_source
+        processing_info.update(cal_info)  # This adds data_calibration_info
+
+        # Update processing info with calibration results
+        for channum, status in cal_info["data_calibration_info"][
+            "calibration_status"
+        ].items():
+            if "Calibrated" in status:
+                processing_info["data_processing_info"]["calibrated_channels"] += 1
+                processing_info["data_processing_info"]["calibration_status"][
+                    channum
+                ] = "Newly calibrated"
+            else:
+                processing_info["data_processing_info"]["calibration_status"][
+                    channum
+                ] = status
 
     if data_is_corrected(data) and data_is_calibrated(data):
         save_processed_data(run, data, save_directory)
-        processing_info["data_saved"] = True
+        processing_info["data_processing_info"]["data_saved"] = True
 
     return processing_info
 

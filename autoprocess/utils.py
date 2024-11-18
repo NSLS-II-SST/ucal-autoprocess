@@ -262,3 +262,30 @@ def get_tes_arrays(data, state, attr="energy"):
     sort_idx = np.argsort(ts_arr)
 
     return ts_arr[sort_idx], en_arr[sort_idx], ch_arr[sort_idx]
+
+
+def get_processing_info_file(save_directory, info_type="processing"):
+    """
+    Get path to processing information pickle file.
+
+    Parameters
+    ----------
+    save_directory : str
+        Base directory for saving data
+    info_type : str, optional
+        Type of processing info: "processing" or "calibration"
+
+    Returns
+    -------
+    str
+        Path to processing info pickle file
+    """
+    if info_type not in ["processing", "calibration"]:
+        raise ValueError("info_type must be either 'processing' or 'calibration'")
+
+    filename = (
+        "data_processing_info.pkl"
+        if info_type == "processing"
+        else "data_calibration_info.pkl"
+    )
+    return join(save_directory, filename)
