@@ -251,7 +251,7 @@ def handle_science_run(run, data, catalog, save_directory):
     else:
         # Perform new calibration if loading failed
         print("Performing new calibration")
-        cal_info = handle_calibration_run(run, data, catalog, save_directory)
+        cal_info = handle_calibration_run(cal_run, data, catalog, save_directory)
         # Save and remove run info and calibration source before update
         run_info = processing_info.pop("run_info")
         calibration_source = processing_info.pop("calibration_source")
