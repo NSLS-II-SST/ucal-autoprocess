@@ -42,12 +42,28 @@ def load_correction(run, data, save_directory):
 
 
 def calibrate_run(run, data, save_directory=None):
-    # Phase correct and calibrate
+    """
+    Calibrate the run data and save calibration results.
+
+    Parameters
+    ----------
+    run : DataBroker run
+        The run to calibrate
+    data : ChannelGroup
+        TES data associated with the run
+    save_directory : str, optional
+        Directory to save calibration results
+
+    Returns
+    -------
+    dict
+        Processing information from calibration
+    """
     line_names = get_line_names(run)
     state = get_tes_state(run)
     print(f"Calibrating {state} with lines {line_names}")
 
-    data.calibrate(state, line_names, "filtValueDC")
+    processing_info = data.calibrate(state, line_names, "filtValueDC")
 
     if save_directory is not None:
         h5name = get_calibration_file(run, save_directory, make_dirs=True)
@@ -55,7 +71,10 @@ def calibrate_run(run, data, save_directory=None):
         print(f"Saving calibration to {h5name}")
         data.calibrationSaveToHDF5Simple(h5name, recipeName="energy")
         summarize_calibration(data, state, line_names, cal_dir, overwrite=True)
-    return data
+        processing_info["calibration_saved"] = True
+        processing_info["calibration_file"] = h5name
+
+    return processing_info
 
 
 def load_calibration(run, data, save_directory):

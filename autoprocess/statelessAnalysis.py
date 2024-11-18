@@ -39,58 +39,121 @@ def handle_run(uid, catalog, save_directory, reprocess=False, verbose=True):
     ----------
     uid : str
         Unique identifier for the run to process
-    catalog : WrappedDatabroker, optional
-        Data catalog instance. If None, creates new connection
-    save_directory : str, optional
+    catalog : WrappedDatabroker
+        Data catalog instance.
+    save_directory : str
         Directory to save processed data
+    reprocess : bool, optional
+        If True, force reprocessing even if data already exists
+    verbose : bool, optional
+        If True, prints processing status messages
 
     Returns
     -------
-    bool
-        True if processing succeeded, False otherwise
+    dict
+        Dictionary containing processing information
     """
+
+    processing_info = {
+        "processed": False,
+        "reason": "",
+        "calibrated_channels": 0,
+        "total_channels": 0,
+        "success": False,
+        "details": {},
+        "run_info": {
+            "uid": run.start.get("uid", ""),
+            "scan_id": run.start.get("scan_id", ""),
+            "sample_name": run.start.get("sample", ""),
+            "scantype": run.start.get("scantype", ""),
+            "timestamp": run.start.get("time", ""),
+        },
+    }
 
     run = catalog[uid]
 
     # Check if run contains TES data
     if "tes" not in run.start.get("detectors", []):
-        print("No TES in run, skipping!")
-        return False
-    if run.start.get("scantype", "") in ["noise", "projectors"]:
-        print("Nothing to be done for Noise or Projectors")
-        return False
+        processing_info["reason"] = "No TES in run"
+        if verbose:
+            print("No TES in run, skipping!")
+        return processing_info
+
+    scantype = run.start.get("scantype", "")
+    if scantype in ["noise", "projectors"]:
+        processing_info["reason"] = f"Scantype '{scantype}' does not require processing"
+        if verbose:
+            print("Nothing to be done for Noise or Projectors")
+        return processing_info
 
     if not reprocess:
         try:
             savename = get_savename(run, save_directory)
         except Exception as e:
-            print(f"Could not get TES Filename: {e}")
-            return False
+            processing_info["reason"] = f"Could not get TES Filename: {e}"
+            if verbose:
+                print(f"Could not get TES Filename: {e}")
+            return processing_info
         if exists(savename):
-            print(f"TES Already processed to {savename}, will not reprocess")
-            return True
+            processing_info["processed"] = True
+            processing_info["reason"] = f"TES already processed to {savename}"
+            if verbose:
+                print(f"TES Already processed to {savename}, will not reprocess")
+            # Check calibrated channels
+            processing_info["success"] = True
+            return processing_info
+
     # Get data files
     try:
-        print(f"Loading TES Data from {get_filename(run)}")
+        if verbose:
+            print(f"Loading TES Data from {get_filename(run)}")
         data = get_data(run)
-        print("TES Data loaded")
+        if verbose:
+            print("TES Data loaded")
     except Exception as e:
-        print(f"Error {e} for .off files for {run.start['scan_id']}")
-        return False
+        processing_info["reason"] = f"Error loading TES data: {e}"
+        if verbose:
+            print(f"Error {e} for .off files for {run.start.get('scan_id', '')}")
+        return processing_info
+
     # Handle calibration runs first
     data.verbose = verbose
+
     try:
-        if run.start.get("scantype", "") == "calibration":
-            r = handle_calibration_run(run, data, catalog, save_directory)
+        if scantype == "calibration":
+            _processing_info = handle_calibration_run(
+                run, data, catalog, save_directory
+            )
         else:
-            r = handle_science_run(run, data, catalog, save_directory)
+            _processing_info = handle_science_run(run, data, catalog, save_directory)
+
+        # Save and remove run info before update
+        run_info = processing_info.pop("run_info")
+        # Get calibration source if it exists before update
+        calibration_source = _processing_info.pop("calibration_source", None)
+
+        processing_info.update(_processing_info)
+
+        # Restore run info and calibration source after update
+        processing_info["run_info"] = run_info
+        if calibration_source:
+            processing_info["calibration_source"] = calibration_source
+
     except Exception as e:
-        print(f"Error {e} while handling {run.start['uid']}")
-        r = False
+        processing_info["reason"] = f"Error while handling run: {e}"
+        if verbose:
+            print(f"Error {e} while handling {run.start['uid']}")
+        return processing_info
+
     print("Offloading TES Data Files")
     for ds in data.values():
         ds.offFile.close()
-    return r
+
+    # Collect processing information
+    processing_info["processed"] = True
+    processing_info["success"] = True
+
+    return processing_info
 
 
 def handle_calibration_run(run, data, catalog, save_directory):
@@ -110,19 +173,22 @@ def handle_calibration_run(run, data, catalog, save_directory):
 
     Returns
     -------
-    bool
-        True if processing succeeded
+    dict
+        Processing information
     """
+
     scan_id = run.start.get("scan_id", "")
 
     print(f"Handling Calibration Run for scan {scan_id}")
     print("Correcting data")
     correct_run(run, data, save_directory)
     print(f"Calibrating Scan {scan_id}")
-    calibrate_run(run, data, save_directory)
+    processing_info = calibrate_run(run, data, save_directory)
     save_processed_data(run, data, save_directory)
 
-    return data
+    processing_info["calibration_applied"] = True
+
+    return processing_info
 
 
 def handle_science_run(run, data, catalog, save_directory):
@@ -142,29 +208,63 @@ def handle_science_run(run, data, catalog, save_directory):
 
     Returns
     -------
-    bool
-        True if processing succeeded
+    dict
+        Processing information
     """
-    # Find the last calibration run
+    processing_info = {
+        "total_channels": len(data),
+        "calibrated_channels": 0,
+        "calibration_status": {},
+        "run_info": {
+            "uid": run.start.get("uid", ""),
+            "scan_id": run.start.get("scan_id", ""),
+            "sample_name": run.start.get("sample", ""),
+            "scantype": run.start.get("scantype", ""),
+            "timestamp": run.start.get("time", ""),
+        },
+    }
 
     scan_id = run.start.get("scan_id", "")
     cal_run = get_calibration(run, catalog)
     cal_id = cal_run.start.get("scan_id", "")
-    print(f"Handling science data for scan {scan_id}, with cal from scan {cal_id}")
+
+    processing_info["calibration_source"] = {
+        "uid": cal_run.start.get("uid", ""),
+        "scan_id": cal_id,
+        "sample_name": cal_run.start.get("sample", ""),
+        "scantype": cal_run.start.get("scantype", ""),
+        "timestamp": cal_run.start.get("time", ""),
+    }
+
+    print(f"Processing scan {scan_id} using calibration from scan {cal_id}")
+
     if load_correction(cal_run, data, save_directory) and load_calibration(
         cal_run, data, save_directory
     ):
-        print("Correction and Calibration loaded successfully")
+        print("Loaded existing calibration")
+        for ds in data.values():
+            if "energy" in ds.recipes:
+                processing_info["calibrated_channels"] += 1
+                processing_info["calibration_status"][ds.channum] = "Loaded from file"
+            else:
+                processing_info["calibration_status"][ds.channum] = "Load failed"
     else:
-        print("Loading Calibration Data")
-        handle_calibration_run(cal_run, data, catalog, save_directory)
+        # Perform new calibration if loading failed
+        print("Performing new calibration")
+        cal_info = handle_calibration_run(run, data, catalog, save_directory)
+        # Save and remove run info and calibration source before update
+        run_info = processing_info.pop("run_info")
+        calibration_source = processing_info.pop("calibration_source")
+        processing_info.update(cal_info)
+        # Restore run info and calibration source after update
+        processing_info["run_info"] = run_info
+        processing_info["calibration_source"] = calibration_source
 
     if data_is_corrected(data) and data_is_calibrated(data):
         save_processed_data(run, data, save_directory)
-        return True
-    else:
-        print(f"Data was not fully processed for scan {scan_id}")
-        return False
+        processing_info["data_saved"] = True
+
+    return processing_info
 
 
 def save_processed_data(run, data, save_directory):
@@ -232,7 +332,6 @@ def save_2d_data(
     str
         Path to saved HDF5 file
     """
-
     scan_data = scandata_from_run(run, save_directory, logtype)
     llim, ulim = energy_range
 
@@ -243,7 +342,7 @@ def save_2d_data(
 
     # Create HDF5 filename
     base_name = get_savename(run, save_directory)
-    h5_name = base_name.replace(".npz", "_rixs.h5")
+    h5_name = base_name.replace(".npz", "_2d.h5")
 
     # Save to HDF5
     with h5py.File(h5_name, "w") as f:

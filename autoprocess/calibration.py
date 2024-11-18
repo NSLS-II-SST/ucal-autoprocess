@@ -236,10 +236,64 @@ def data_calibrate(
     recipeName="energy",
     **kwargs,
 ):
+    """
+    Calibrate the data using specified calibration lines.
+
+    Parameters
+    ----------
+    cal_state : str
+        State to calibrate
+    line_names : list
+        Names of calibration lines to use
+    fv : str, optional
+        Name of filtered value attribute
+    rms_cutoff : float, optional
+        Maximum RMS value for acceptable calibration
+    assignment : str, optional
+        Peak assignment method
+    recipeName : str, optional
+        Name for calibration recipe
+    **kwargs : dict
+        Additional arguments passed to learnCalibrationPlanFromEnergiesAndPeaks
+
+    Returns
+    -------
+    dict
+        Processing information including:
+        - 'calibration_status': dict mapping channel numbers to status
+        - 'rms_per_channel': dict mapping channel numbers to RMS values
+        - 'calibrated_channels': int count of successfully calibrated channels
+        - 'total_channels': int total number of channels
+        - 'calibration_histograms': dict containing histogram data per channel:
+            - 'bin_centers': array of energy bin centers
+            - 'counts': dict mapping channel numbers to count arrays
+            - 'energy_range': tuple of (min_energy, max_energy)
+    """
     self.setDefaultBinsize(0.2)
-    # ds.plotHist(np.arange(0,30000,10), fv, states=None)
     line_energies = get_line_energies(line_names)
-    # ds.diagnoseCalibration()
+
+    # Initialize processing info
+    processing_info = {
+        "calibration_status": {},
+        "rms_per_channel": {},
+        "calibrated_channels": 0,
+        "total_channels": len(self),
+        "calibration_histograms": {
+            "counts": {},
+            "energy_range": (min(line_energies) - 50, max(line_energies) + 50),
+        },
+    }
+
+    # Set up histogram bins
+    bins = np.arange(
+        processing_info["calibration_histograms"]["energy_range"][0],
+        processing_info["calibration_histograms"]["energy_range"][1],
+        1,
+    )
+    bin_centers = 0.5 * (bins[1:] + bins[:-1])
+    processing_info["calibration_histograms"]["bin_centers"] = bin_centers
+    processing_info["calibration_lines"] = line_energies
+
     for ds in self.values():
         try:
             e_out, peaks, rms = ds.learnCalibrationPlanFromEnergiesAndPeaks(
@@ -251,6 +305,12 @@ def data_calibrate(
                 **kwargs,
             )
             if rms < rms_cutoff:
+                processing_info["calibrated_channels"] += 1
+                processing_info["rms_per_channel"][ds.channum] = rms
+                processing_info["calibration_status"][
+                    ds.channum
+                ] = f"Calibrated (RMS: {rms:.3f})"
+
                 print(f"Calibrating {ds.channum} succeeded with rms: {rms}")
                 calibration = mass.EnergyCalibration(
                     curvetype="gain", approximate=False
@@ -264,16 +324,31 @@ def data_calibrate(
                     [calibration.uncalibratedName],
                     overwrite=True,
                 )
-            else:
-                msg = f"Failed calibration cut with RMS: {rms}, cutoff: {rms_cutoff}"
-                print(msg)
-                ds.markBad(msg)
-                continue
-        except ValueError:
-            print("Chan {ds.channum} failed peak assignment")
-            ds.markBad("Failed peak assignment")
 
-        # self.alignToReferenceChannel(ds, fv, np.arange(1000, 27000,  10))
+                # Save calibration histogram
+                try:
+                    energies = ds.getAttr("energy", cal_state)
+                    counts, _ = np.histogram(energies, bins)
+                    processing_info["calibration_histograms"]["counts"][
+                        ds.channum
+                    ] = counts
+                except Exception as e:
+                    print(
+                        f"Failed to save histogram for channel {ds.channum}: {str(e)}"
+                    )
+
+            else:
+                msg = f"Failed RMS cut: {rms:.3f} > {rms_cutoff}"
+                processing_info["calibration_status"][ds.channum] = msg
+                print(f"Chan {ds.channum}: {msg}")
+                ds.markBad(msg)
+        except ValueError as e:
+            msg = f"Failed peak assignment: {str(e)}"
+            processing_info["calibration_status"][ds.channum] = msg
+            print(f"Chan {ds.channum}: {msg}")
+            ds.markBad(msg)
+
+    return processing_info
 
 
 """    self.calibrateFollowingPlan(
