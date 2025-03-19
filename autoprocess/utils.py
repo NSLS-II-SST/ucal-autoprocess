@@ -2,7 +2,6 @@
 
 import numpy as np
 from os.path import dirname, join, basename, exists
-import datetime
 import os
 
 
@@ -23,7 +22,6 @@ def get_proposal_path(run):
 
 def get_processed_path(run):
     proposal_path = get_proposal_path(run)
-
     export_path = join(proposal_path, "processing", "ucal-1")
     return export_path
 

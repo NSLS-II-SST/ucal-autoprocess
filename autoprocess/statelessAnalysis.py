@@ -31,7 +31,16 @@ def get_data(run):
     return data
 
 
-def handle_run(uid, catalog, save_directory, reprocess=False, verbose=True):
+def handle_run(
+    uid,
+    catalog,
+    save_directory,
+    reprocess=False,
+    verbose=True,
+    data=None,
+    return_data=False,
+    processing_settings=None,
+):
     """
     Process a single run given its UID.
 
@@ -55,6 +64,10 @@ def handle_run(uid, catalog, save_directory, reprocess=False, verbose=True):
     """
 
     run = catalog[uid]
+    if data is None and not return_data:
+        should_close_data = True
+    else:
+        should_close_data = False
 
     processing_info = {
         "processed": False,
@@ -71,6 +84,9 @@ def handle_run(uid, catalog, save_directory, reprocess=False, verbose=True):
             "timestamp": run.start.get("time", ""),
         },
     }
+
+    if return_data:
+        processing_info["data"] = data
 
     # Check if run contains TES data
     if "tes" not in run.start.get("detectors", []):
@@ -105,11 +121,16 @@ def handle_run(uid, catalog, save_directory, reprocess=False, verbose=True):
 
     # Get data files
     try:
-        if verbose:
-            print(f"Loading TES Data from {get_filename(run)}")
-        data = get_data(run)
-        if verbose:
-            print("TES Data loaded")
+        if data is None:
+            if verbose:
+                print(f"Loading TES Data from {get_filename(run)}")
+            data = get_data(run)
+            if verbose:
+                print("TES Data loaded")
+        else:
+            if verbose:
+                print("Using provided TES Data")
+        processing_info["data"] = data
     except Exception as e:
         processing_info["reason"] = f"Error loading TES data: {e}"
         if verbose:
@@ -122,10 +143,12 @@ def handle_run(uid, catalog, save_directory, reprocess=False, verbose=True):
     try:
         if scantype == "calibration":
             _processing_info = handle_calibration_run(
-                run, data, catalog, save_directory
+                run, data, catalog, save_directory, processing_settings
             )
         else:
-            _processing_info = handle_science_run(run, data, catalog, save_directory)
+            _processing_info = handle_science_run(
+                run, data, catalog, save_directory, processing_settings
+            )
 
         # Save and remove run info before update
         run_info = processing_info.pop("run_info")
@@ -145,9 +168,12 @@ def handle_run(uid, catalog, save_directory, reprocess=False, verbose=True):
             print(f"Error {e} while handling {run.start['uid']}")
         return processing_info
 
-    print("Offloading TES Data Files")
-    for ds in data.values():
-        ds.offFile.close()
+    if should_close_data:
+        print("Offloading TES Data Files")
+        for ds in data.values():
+            ds.offFile.close()
+    else:
+        print("Not offloading TES Data Files")
 
     # Collect processing information
     processing_info["processed"] = True
@@ -156,7 +182,9 @@ def handle_run(uid, catalog, save_directory, reprocess=False, verbose=True):
     return processing_info
 
 
-def handle_calibration_run(run, data, catalog, save_directory):
+def handle_calibration_run(
+    run, data, catalog, save_directory, processing_settings=None
+):
     """
     Process a calibration run.
 

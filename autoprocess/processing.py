@@ -6,7 +6,6 @@ from .utils import (
 )
 from .calibration import summarize_calibration
 from os.path import join, dirname, exists
-import os
 
 
 def correct_run(run, data, save_directory=None):

@@ -5,28 +5,18 @@ from ucalpost.databroker.run import (
     summarize_run,
     get_samplename,
 )
-from .utils import get_tes_state, get_filename
-from ucalpost.databroker.catalog import WrappedDatabroker
-from ucalpost.tes.process_classes import (
-    log_from_run,
-    ProcessedData,
-    ScanData,
-    LogData,
-    data_from_file,
-)
-from ucalpost.tes.noise import get_noise_and_projectors, load_mass
+from .utils import get_tes_state, get_filename, get_savename
 from tiled.client import from_uri
 from os.path import dirname, join, exists, basename
-import os
-from . import calibration
-import json
-from mass.off import (
-    ChannelGroup,
-    getOffFileListFromOneFile,
-    Channel,
-    labelPeak,
-    labelPeaks,
+from mass.off import getOffFileListFromOneFile
+from .statelessAnalysis import (
+    handle_calibration_run,
+    handle_science_run,
+    save_processed_data,
+    get_data,
 )
+from .scanData import scandata_from_run
+from databroker.queries import TimeRange
 
 """
 Todo:
@@ -43,18 +33,33 @@ plt.ion()
 
 
 class SerialAnalysis:
-    def __init__(self, start_index=None, since=None, until=None):
-        self.raw_catalog = WrappedDatabroker(from_uri("http://172.31.133.41:8000"))
+    """
+    Class for serial analysis of TES data.
+
+    Parameters
+    ----------
+    start_index : int, optional
+        Starting index in the catalog
+    since : str, optional
+        Start time for filtering catalog
+    until : str, optional
+        End time for filtering catalog
+    """
+
+    def __init__(
+        self, save_directory, catalog, start_index=None, since=None, until=None
+    ):
+        self.catalog = catalog
         self.filter_by_time(since, until)
         self._data = None
-        self._save_directory = "/home/decker/processed"
+        self._save_directory = save_directory
         self._clear_run()
         self._since = None
         self._until = None
         if start_index is not None:
             try:
                 self.run = self.catalog[start_index]
-            except:
+            except Exception:
                 self.run = self.catalog[-1]
         else:
             self.run = self.catalog[-1]
@@ -68,7 +73,7 @@ class SerialAnalysis:
     def filter_by_time(self, since=None, until=None):
         self._since = since
         self._until = until
-        self.catalog = self.raw_catalog.filter_by_time(since, until).filter_by_stop()
+        self.catalog = self.catalog.search(TimeRange(since, until))
 
     def refresh(self):
         self.filter_by_time(self._since, self._until)
@@ -85,16 +90,29 @@ class SerialAnalysis:
         self._data = None
 
     def get_data(self):
+        """
+        Get TES data for current run.
+
+        Returns
+        -------
+        ChannelGroup
+            Group of TES channels
+        """
+        if self.run is None:
+            raise ValueError("run is None!")
+
+        if self._data is None:
+            self._data = get_data(self.run)
+            return self._data
+
         filename = get_filename(self.run, convert_local=False)
         files = getOffFileListFromOneFile(filename, maxChans=400)
-        if self._data is None:
-            self._data = ChannelGroup(files)
-            return self._data
-        elif self._data.offFileNames[0] == files[0]:
+
+        if self._data.offFileNames[0] == files[0]:
             return self._data
         else:
             self._close_data()
-            self._data = ChannelGroup(files)
+            self._data = get_data(self.run)
             return self._data
 
     def summarize_run(self):
@@ -166,21 +184,43 @@ class SerialAnalysis:
         return data
 
     def handle_run(self, phaseCorrect=True):
-        if "tes" not in self.run.start.get("detectors", []):
-            print("No TES in run, skipping!")
-            return True
-        if self.run.start.get("scantype", "") == "calibration":
-            if not self.run_is_corrected():
-                self.correct_run(phaseCorrect=True)
-            fvAttr = "filtValue5LagDCPC" if phaseCorrect else "filtValue5LagDC"
-            self.calibrate_run(fvAttr=fvAttr)
-        if self.run_is_calibrated():
-            self.save_run()
-            self.load_scandata()
-            return True
-        else:
-            print("No Calibration Exists! Something went wrong")
+        """
+        Process current run.
+
+        Parameters
+        ----------
+        phaseCorrect : bool, optional
+            Whether to perform phase correction
+
+        Returns
+        -------
+        bool
+            True if processing succeeded
+        """
+        if self.run is None:
+            raise ValueError("run is None!")
+
+        data = self.get_data()
+
+        try:
+            if self.run.start.get("scantype", "") == "calibration":
+                processing_info = handle_calibration_run(
+                    self.run, data, self.catalog, self._save_directory
+                )
+            else:
+                processing_info = handle_science_run(
+                    self.run, data, self.catalog, self._save_directory
+                )
+
+            if processing_info["success"]:
+                self.load_scandata()
+                return True
+
+        except Exception as e:
+            print(f"Error processing run: {e}")
             return False
+
+        return False
 
     def handle_all_runs(self):
         success = True
@@ -188,21 +228,14 @@ class SerialAnalysis:
             success = self.handle_run() & bool(self.advance_one_run())
 
     def save_run(self):
-        state = get_tes_state(self.run)
-        savename = get_savename(self.run, self._save_directory)
-        os.makedirs(dirname(savename), exist_ok=True)
-        ts, e, ch = get_tes_arrays(self._data, state)
-        print(f"Saving {savename}")
-        np.savez(savename, timestamps=ts, energies=e, channels=ch)
+        """Save processed data for current run."""
+        if self.run is None:
+            raise ValueError("run is None!")
+
+        save_processed_data(self.run, self._data, self._save_directory)
 
     def load_scandata(self):
-        savename = get_savename(self.run, self._save_directory)
-        if exists(savename):
-            data = data_from_file(savename)
-            log = log_from_run(self.run)
-            self.sd = ScanData(data, log)
-        else:
-            self.sd = sd_from_run(self._data, self.run)
+        self.sd = scandata_from_run(self.run, self._save_directory, logtype="run")
 
     def get_scandata(self):
         if self.sd is not None:
@@ -314,16 +347,6 @@ def get_model_file(run, catalog):
     )
     projector_filename = join(projector_base, "projectors.hdf5")
     return projector_filename
-
-
-def get_savename(run, save_directory="/home/decker/processed"):
-    filename = get_filename(run, convert_local=False)
-    date = filename.split("/")[-3]
-    tes_prefix = "_".join(basename(filename).split("_")[:2])
-    state = get_tes_state(run)
-    scanid = run.start["scan_id"]
-    savename = join(save_directory, date, f"{tes_prefix}_{state}_scan_{scanid}.npz")
-    return savename
 
 
 def get_tes_arrays(data, state, attr="energy"):
