@@ -78,7 +78,7 @@ class InteractiveCatalog:
     def filter_by_time(self, since=None, until=None):
         self._since = since
         self._until = until
-        self.catalog = self.catalog.search(TimeRange(since, until))
+        self.catalog = self.catalog.search(TimeRange(since=since, until=until))
 
     def refresh(self):
         self.filter_by_time(self._since, self._until)
@@ -110,7 +110,7 @@ class InteractiveCatalog:
             self._data = get_data(self.run)
             return self._data
 
-        filename = get_filename(self.run, convert_local=False)
+        filename = get_filename(self.run)
         files = getOffFileListFromOneFile(filename, maxChans=400)
 
         if self._data.offFileNames[0] == files[0]:
@@ -197,6 +197,7 @@ class InteractiveCatalog:
                 data=data,
                 processing_dict=self._default_settings,
             )
+            self._last_processing_info = processing_info
             if processing_info["success"]:
                 self.load_scandata()
                 return True
