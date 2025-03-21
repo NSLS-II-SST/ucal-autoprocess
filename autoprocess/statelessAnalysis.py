@@ -85,22 +85,19 @@ def handle_run(
         },
     }
 
-    if return_data:
-        processing_info["data"] = data
-
     # Check if run contains TES data
     if "tes" not in run.start.get("detectors", []):
         processing_info["reason"] = "No TES in run"
         if verbose:
             print("No TES in run, skipping!")
-        return processing_info
+        return processing_info, data
 
     scantype = run.start.get("scantype", "")
     if scantype in ["noise", "projectors"]:
         processing_info["reason"] = f"Scantype '{scantype}' does not require processing"
         if verbose:
             print("Nothing to be done for Noise or Projectors")
-        return processing_info
+        return processing_info, data
 
     if not reprocess:
         try:
@@ -109,7 +106,7 @@ def handle_run(
             processing_info["reason"] = f"Could not get TES Filename: {e}"
             if verbose:
                 print(f"Could not get TES Filename: {e}")
-            return processing_info
+            return processing_info, data
         if exists(savename):
             processing_info["processed"] = True
             processing_info["reason"] = f"TES already processed to {savename}"
@@ -117,7 +114,7 @@ def handle_run(
                 print(f"TES Already processed to {savename}, will not reprocess")
             # Check calibrated channels
             processing_info["success"] = True
-            return processing_info
+            return processing_info, data
 
     # Get data files
     try:
@@ -130,12 +127,11 @@ def handle_run(
         else:
             if verbose:
                 print("Using provided TES Data")
-        processing_info["data"] = data
     except Exception as e:
         processing_info["reason"] = f"Error loading TES data: {e}"
         if verbose:
             print(f"Error {e} for .off files for {run.start.get('scan_id', '')}")
-        return processing_info
+        return processing_info, data
 
     # Handle calibration runs first
     data.verbose = verbose
@@ -143,11 +139,11 @@ def handle_run(
     try:
         if scantype == "calibration":
             _processing_info = handle_calibration_run(
-                run, data, catalog, save_directory, processing_settings
+                run, data, catalog, save_directory, processing_dict
             )
         else:
             _processing_info = handle_science_run(
-                run, data, catalog, save_directory, processing_settings
+                run, data, catalog, save_directory, processing_dict
             )
 
         # Save and remove run info before update
@@ -166,12 +162,13 @@ def handle_run(
         processing_info["reason"] = f"Error while handling run: {e}"
         if verbose:
             print(f"Error {e} while handling {run.start['uid']}")
-        return processing_info
+        return processing_info, data
 
     if should_close_data:
         print("Offloading TES Data Files")
         for ds in data.values():
             ds.offFile.close()
+        data = None
     else:
         print("Not offloading TES Data Files")
 
@@ -179,7 +176,7 @@ def handle_run(
     processing_info["processed"] = True
     processing_info["success"] = True
 
-    return processing_info
+    return processing_info, data
 
 
 def handle_calibration_run(run, data, catalog, save_directory, processing_dict={}):

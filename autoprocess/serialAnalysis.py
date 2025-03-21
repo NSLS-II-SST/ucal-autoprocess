@@ -5,10 +5,13 @@ from .utils import get_tes_state, get_filename, get_samplename, get_savename
 from os.path import dirname, join, exists, basename
 from mass.off import getOffFileListFromOneFile
 from .statelessAnalysis import (
-    handle_calibration_run,
-    handle_science_run,
+    handle_run,
     save_processed_data,
     get_data,
+)
+from .processing import (
+    data_is_calibrated,
+    data_is_corrected,
 )
 from .scanData import scandata_from_run
 from databroker.queries import TimeRange
@@ -42,7 +45,13 @@ class InteractiveCatalog:
     """
 
     def __init__(
-        self, save_directory, catalog, start_index=None, since=None, until=None
+        self,
+        save_directory,
+        catalog,
+        start_index=None,
+        since=None,
+        until=None,
+        default_settings={},
     ):
         self.catalog = catalog
         self.filter_by_time(since, until)
@@ -51,6 +60,7 @@ class InteractiveCatalog:
         self._clear_run()
         self._since = None
         self._until = None
+        self._default_settings = default_settings
         if start_index is not None:
             try:
                 self.run = self.catalog[start_index]
@@ -133,11 +143,7 @@ class InteractiveCatalog:
     def run_is_corrected(self):
         try:
             data = self.get_data()
-            ds = data.firstGoodChannel()
-            if not hasattr(ds, "filtValue5LagDC"):
-                return False
-            else:
-                return True
+            return data_is_corrected(data)
         except:
             return False
 
@@ -163,39 +169,7 @@ class InteractiveCatalog:
         except:
             return False
 
-    def correct_run(self, phaseCorrect=True, **kwargs):
-        if self.run is None:
-            raise ValueError("run is None!")
-        data = self.get_data()
-        ds = data.firstGoodChannel()
-        state = get_tes_state(self.run)
-        model_path = get_model_file(self.run, self.catalog)
-        data.add5LagRecipes(model_path)
-        data.learnDriftCorrection(
-            indicatorName="pretriggerMean",
-            uncorrectedName=f"filtValue5Lag",
-            correctedName=f"filtValue5LagDC",
-            states=state,
-        )
-        if phaseCorrect:
-            self.calibrate_run(**kwargs)
-            data.learnPhaseCorrection(
-                "filtPhase",
-                "filtValue5LagDC",
-                "filtValue5LagDCPC",
-                states=state,
-                overwriteRecipe=True,
-            )
-
-    def calibrate_run(self, line_names=None, fvAttr="filtValue5LagDC", **kwargs):
-        state = get_tes_state(self.run)
-        data = self.get_data()
-        if line_names is None:
-            line_names = get_line_names(self.run)
-        data.calibrate(state, line_names, fvAttr, **kwargs)
-        return data
-
-    def handle_run(self, phaseCorrect=True):
+    def handle_run(self, reprocess=False):
         """
         Process current run.
 
@@ -213,17 +187,16 @@ class InteractiveCatalog:
             raise ValueError("run is None!")
 
         data = self.get_data()
-
+        uid = self.run.start["uid"]
         try:
-            if self.run.start.get("scantype", "") == "calibration":
-                processing_info = handle_calibration_run(
-                    self.run, data, self.catalog, self._save_directory
-                )
-            else:
-                processing_info = handle_science_run(
-                    self.run, data, self.catalog, self._save_directory
-                )
-
+            processing_info, _ = handle_run(
+                uid,
+                self.catalog,
+                self._save_directory,
+                reprocess=reprocess,
+                data=data,
+                processing_dict=self._default_settings,
+            )
             if processing_info["success"]:
                 self.load_scandata()
                 return True
