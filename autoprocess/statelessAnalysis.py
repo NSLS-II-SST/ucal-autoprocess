@@ -39,7 +39,7 @@ def handle_run(
     verbose=True,
     data=None,
     return_data=False,
-    processing_settings=None,
+    processing_dict={},
 ):
     """
     Process a single run given its UID.
@@ -182,9 +182,7 @@ def handle_run(
     return processing_info
 
 
-def handle_calibration_run(
-    run, data, catalog, save_directory, processing_settings=None
-):
+def handle_calibration_run(run, data, catalog, save_directory, processing_dict={}):
     """
     Process a calibration run.
 
@@ -206,15 +204,20 @@ def handle_calibration_run(
     """
 
     scan_id = run.start.get("scan_id", "")
-
+    correction_dict = processing_dict.get("correction_dict", {})
+    calibration_dict = processing_dict.get("calibration_dict", {})
     print(f"Handling Calibration Run for scan {scan_id}")
     print("Correcting data")
-    correct_run(run, data, save_directory)
+    correction_info = correct_run(run, data, save_directory, correction_dict)
+    _cal_dict = {}
+    _cal_dict.update(calibration_dict)
+    _cal_dict["fvAttr"] = correction_info["correctedName"]
     print(f"Calibrating Scan {scan_id}")
-    cal_info = calibrate_run(run, data, save_directory)
+    cal_info = calibrate_run(run, data, save_directory, _cal_dict)
     save_processed_data(run, data, save_directory)
 
     processing_info = {
+        "data_correction_info": correction_info,
         "data_calibration_info": {
             "run_info": {
                 "uid": run.start.get("uid", ""),
@@ -224,14 +227,14 @@ def handle_calibration_run(
                 "timestamp": run.start.get("time", ""),
             },
             **cal_info,  # Include all calibration information
-        }
+        },
     }
     processing_info["calibration_applied"] = True
 
     return processing_info
 
 
-def handle_science_run(run, data, catalog, save_directory):
+def handle_science_run(run, data, catalog, save_directory, processing_dict={}):
     """
     Process a science run.
 
@@ -297,7 +300,9 @@ def handle_science_run(run, data, catalog, save_directory):
     else:
         print("Performing new calibration")
         # Get calibration info and merge it with processing info
-        cal_info = handle_calibration_run(cal_run, data, catalog, save_directory)
+        cal_info = handle_calibration_run(
+            cal_run, data, catalog, save_directory, processing_dict
+        )
         processing_info.update(cal_info)  # This adds data_calibration_info
 
         # Update processing info with calibration results

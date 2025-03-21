@@ -68,6 +68,21 @@ def get_calibration_uid(run):
 
 
 def get_calibration(run, catalog):
+    """
+    Get calibration run assigned to run from catalog.
+
+    Parameters
+    ----------
+    run : Tiled run
+        Run to get calibration for
+    catalog : WrappedDatabroker
+        Data catalog instance
+
+    Returns
+    -------
+    Tiled run
+        Calibration run
+    """
     uid = get_calibration_uid(run)
     try:
         return catalog[uid]

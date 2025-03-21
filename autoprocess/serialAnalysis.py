@@ -1,12 +1,7 @@
 import mass
 import numpy as np
 import matplotlib.pyplot as plt
-from ucalpost.databroker.run import (
-    summarize_run,
-    get_samplename,
-)
-from .utils import get_tes_state, get_filename, get_savename
-from tiled.client import from_uri
+from .utils import get_tes_state, get_filename, get_samplename, get_savename
 from os.path import dirname, join, exists, basename
 from mass.off import getOffFileListFromOneFile
 from .statelessAnalysis import (
@@ -32,7 +27,7 @@ plt.close("all")
 plt.ion()
 
 
-class SerialAnalysis:
+class InteractiveCatalog:
     """
     Class for serial analysis of TES data.
 
@@ -116,7 +111,24 @@ class SerialAnalysis:
             return self._data
 
     def summarize_run(self):
-        summarize_run(self.run)
+        run = self.run
+        scanid = run.metadata["start"]["scan_id"]
+        sample = get_samplename(run)
+        scantype = run.start.get("scantype", "None")
+
+        print(f"Scan {scanid}")
+        if "group_md" in run.start:
+            print(f"Group: {run.start['group_md']['name']}")
+        elif "group" in run.start:
+            print(f"Group: {run.start['group']}")
+        print(f"Sample name: {sample}")
+        if scantype == "xas":
+            edge = run.start.get("edge", "Not recorded")
+            print(f"Scantype: {scantype}, edge: {edge}")
+        else:
+            print(f"Scantype: {scantype}")
+        if "last_cal" in run.start:
+            print(f"Calibration: {run.start['last_cal']!s:.8}")
 
     def run_is_corrected(self):
         try:
