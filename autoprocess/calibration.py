@@ -44,6 +44,7 @@ def get_line_energies(line_names):
 
 def assignPeaks(
     peak_positions,
+    peak_heights,
     line_names,
     nextra=2,
     nincrement=2,
@@ -75,6 +76,7 @@ def assignPeaks(
     energies = np.asarray(e_e, dtype="float")
     n_sel = len(line_names) + nextra  # number of peaks to consider for fitting
     nmax = len(line_names) + nextramax
+    peak_positions = peak_positions[peak_heights.argsort()[::-1]]
     while True:
         sel_positions = np.asarray(peak_positions[:n_sel], dtype="float")
 
@@ -141,17 +143,88 @@ def debugAssignment(ds, attr, states, ph_fwhm, line_names, assignment="nsls", **
     )
 
 
-def ds_learnCalibrationPlanFromEnergiesAndPeaks(
-    self, attr, states, ph_fwhm, line_names, assignment="nsls", **kwargs
-):
-    peak_positions, _peak_heights = mass.algorithms.find_local_maxima(
-        self.getAttr(attr, indsOrStates=states), ph_fwhm
+def compute_closeness(peaks, heights):
+    peaks = np.array(peaks)
+    heights = np.array(heights)
+    sorted_peak_args = peaks.argsort()
+    sorted_peaks = peaks[sorted_peak_args]
+    sorted_heights = heights[sorted_peak_args]
+    closeness = (sorted_peaks[1:] - sorted_peaks[:-1]) / (
+        0.5 * (sorted_peaks[1:] + sorted_peaks[:-1])
     )
+    return closeness, sorted_peaks, sorted_heights
+
+
+def remove_close_peaks(peaks, heights, cutoff=0.02):
+    closeness, sorted_peaks, sorted_heights = compute_closeness(peaks, heights)
+    if min(closeness) > cutoff:
+        return sorted_peaks, sorted_heights
+
+    isolated_peaks = []
+    isolated_heights = []
+    skipidx = set()
+    skipnext = False
+    for i, c in enumerate(closeness):
+        if skipnext:
+            skipnext = False
+            continue
+        if c < cutoff:
+            h1 = sorted_heights[i]
+            h2 = sorted_heights[1 + i]
+            if h1 > h2:
+                skipidx.add(i + 1)
+            else:
+                skipidx.add(i)
+            skipnext = True
+
+    isolated_peaks = np.array(
+        [p for i, p in enumerate(sorted_peaks) if i not in skipidx]
+    )
+    isolated_heights = np.array(
+        [h for i, h in enumerate(sorted_heights) if i not in skipidx]
+    )
+    return remove_close_peaks(isolated_peaks, isolated_heights, cutoff)
+
+
+def get_peaks(ds, attr, states, ph_fwhm, max_peak_ratio=15, min_closeness=0.02):
+    peak_positions, peak_heights = mass.algorithms.find_local_maxima(
+        ds.getAttr(attr, indsOrStates=states), ph_fwhm
+    )
+    second_highest_peak = peak_heights[
+        1
+    ]  # compute ratio from second highest peak for robustness against outliers
+    peak_cutoff = second_highest_peak / max_peak_ratio
+    filtered_peaks = peak_positions[peak_heights > peak_cutoff]
+    filtered_heights = peak_heights[peak_heights > peak_cutoff]
+    isolated_peaks, isolated_heights = remove_close_peaks(
+        filtered_peaks, filtered_heights, cutoff=min_closeness
+    )
+    return isolated_peaks, isolated_heights
+
+
+def ds_learnCalibrationPlanFromEnergiesAndPeaks(
+    self,
+    attr,
+    states,
+    ph_fwhm,
+    line_names,
+    assignment="nsls",
+    max_peak_ratio=15,
+    min_closeness=0.02,
+    **kwargs,
+):
+
     if assignment == "nsls":
+        peak_positions, peak_heights = get_peaks(
+            self, attr, states, ph_fwhm, max_peak_ratio, min_closeness
+        )
         name_or_e, e_out, assignment, rms = assignPeaks(
-            peak_positions, line_names, rms_cutoff=1, **kwargs
+            peak_positions, peak_heights, line_names, rms_cutoff=1, **kwargs
         )
     else:
+        peak_positions, _peak_heights = mass.algorithms.find_local_maxima(
+            self.getAttr(attr, indsOrStates=states), ph_fwhm
+        )
         name_or_e, e_out, assignment = mass.algorithms.find_opt_assignment(
             peak_positions, line_names, maxacc=0.1, **kwargs
         )
