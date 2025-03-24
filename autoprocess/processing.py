@@ -6,6 +6,7 @@ from .utils import (
 )
 from .calibration import summarize_calibration
 from os.path import join, dirname, exists
+import pickle
 
 
 def correct_run(
@@ -84,16 +85,26 @@ def correct_run(
         print(f"Saving corrections to {dc_name}")
         data.saveRecipeBooks(dc_name)
         correction_info["correction_file"] = dc_name
+        info_filename = join(dirname(dc_name), "correction_info.pkl")
+        with open(info_filename, "wb") as f:
+            pickle.dump(correction_info, f)
     return correction_info
 
 
 def load_correction(run, data, save_directory):
     dc_name = get_correction_file(run, save_directory)
+    info_filename = join(dirname(dc_name), "correction_info.pkl")
+
     print(f"Loading correction from {dc_name}")
     if exists(dc_name):
         try:
             data.loadRecipeBooks(dc_name)
-            return True
+            if exists(info_filename):
+                with open(info_filename, "rb") as f:
+                    correction_info = pickle.load(f)
+                return correction_info
+            else:
+                return {"correction_file": dc_name}
         except Exception as e:
             print(f"Got error loading correction: {e}")
             return False
@@ -135,6 +146,9 @@ def calibrate_run(run, data, save_directory=None, calibration_dict={}):
         summarize_calibration(data, state, line_names, cal_dir, overwrite=True)
         processing_info["calibration_saved"] = True
         processing_info["calibration_file"] = h5name
+        info_filename = join(dirname(h5name), "calibration_info.pkl")
+        with open(info_filename, "wb") as f:
+            pickle.dump(processing_info, f)
 
     return processing_info
 
@@ -146,7 +160,13 @@ def load_calibration(run, data, save_directory):
         print(f"Loading correction from {h5name}")
         try:
             data.calibrationLoadFromHDF5Simple(h5name, recipeName="energy")
-            return True
+            info_filename = join(dirname(h5name), "calibration_info.pkl")
+            if exists(info_filename):
+                with open(info_filename, "rb") as f:
+                    processing_info = pickle.load(f)
+                return processing_info
+            else:
+                return {"calibration_file": h5name, "calibration_saved": True}
         except Exception as e:
             print(f"Got error loading calibration: {e}")
             return False
