@@ -529,9 +529,9 @@ def data_calibrate(
     for i, key in enumerate(bad_keys):
         processing_info["calibration_status"][
             key
-        ] = f"Bad histogram (RMS: {bad_rms[i]:.3f} > {stddev_cutoff}*{mean_rms:.3f})"
+        ] = f"Bad histogram (RMS: {bad_rms[i]:.3e} > {stddev_cutoff}*{mean_rms:.3e})"
         print(
-            f"Chan {key}: Bad histogram (RMS: {bad_rms[i]:.3f} > {stddev_cutoff}*{mean_rms:.3f})"
+            f"Chan {key}: Bad histogram (RMS: {bad_rms[i]:.3e} > {stddev_cutoff}*{mean_rms:.3e})"
         )
         self[key].markBad(processing_info["calibration_status"][key])
 
@@ -689,9 +689,9 @@ def plot_calibration_failure(ds, state, reason, savedir, overwrite=True):
     """
     Plot the RMS and peak failure for a given channel
     """
-    if "energy" in ds.recipes:
+    if "energy" in ds.recipes.keys():
         ecal = ds.recipes["energy"].f
-    elif "energyRough" in ds.recipes:
+    elif "energyRough" in ds.recipes.keys():
         ecal = ds.recipes["energyRough"].f
     else:
         return
