@@ -132,9 +132,13 @@ def calibrate_run(run, data, save_directory=None, calibration_dict={}):
     """
     line_names = get_line_names(run)
     state = get_tes_state(run)
-    print(f"Calibrating {state} with lines {line_names}")
     _cal_dict = {}
     _cal_dict.update(calibration_dict)
+    if "line_names" in _cal_dict:
+        line_names = _cal_dict.pop("line_names")
+
+    print(f"Calibrating {state} with lines {line_names}")
+
     fvAttr = _cal_dict.pop("fvAttr", "filtValueDC")
     processing_info = data.calibrate(state, line_names, fvAttr, **_cal_dict)
 

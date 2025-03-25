@@ -202,6 +202,77 @@ def get_peaks(ds, attr, states, ph_fwhm, max_peak_ratio=15, min_closeness=0.02):
     return isolated_peaks, isolated_heights
 
 
+def make_test_calibration(lines, peaks, curvetype="gain", approximate=False):
+    cal = mass.EnergyCalibration(curvetype=curvetype, approximate=approximate)
+    for ph, e in zip(peaks, lines):
+        cal.add_cal_point(ph, e)
+    return cal
+
+
+def drop_one_rms(cal):
+    _, err = cal.drop_one_errors()
+    return np.sqrt(np.sum(err**2) / len(err))
+
+
+def compare_drop_ones(channum, lines, assignments, rms, nmax=5, **kwargs):
+    rms = np.array(rms)
+    idx = np.argsort(rms)
+    sorted_peaks = assignments[idx]
+    sorted_rms = rms[idx]
+    drop_ones = []
+    cal_list = []
+    for assignment, r in zip(sorted_peaks[:nmax], sorted_rms[:nmax]):
+        cal = make_test_calibration(lines, assignment, **kwargs)
+        try:
+            drms = drop_one_rms(cal)
+        except:
+            drms = np.inf
+        drop_ones.append(drms)
+        cal_list.append(cal)
+    didx = np.argmin(drop_ones)
+    if didx == 0:
+        print(f"Chan {channum} has no drop-one improvement")
+        return sorted_peaks[0], sorted_rms[0]
+    else:
+        print(
+            f"Chan {channum} has drop-one improvement, RMS degradation from {sorted_rms[0]} to {sorted_rms[didx]}"
+        )
+        return sorted_peaks[didx], sorted_rms[didx]
+
+
+def nsls_assignment(
+    ds,
+    attr,
+    states,
+    ph_fwhm,
+    line_names,
+    max_peak_ratio=15,
+    min_closeness=0.02,
+    **kwargs,
+):
+    peak_positions, peak_heights = get_peaks(
+        ds, attr, states, ph_fwhm, max_peak_ratio, min_closeness
+    )
+    name_or_e, e_out, assignment_list, rms_list = assignPeaks(
+        peak_positions, peak_heights, line_names, rms_cutoff=1, debug=True, **kwargs
+    )
+    rms_idx = np.argsort(rms_list)
+    rms_sort = rms_list[rms_idx]
+    if len(rms_sort) > 1:
+        if rms_sort[1] < rms_sort[0] * 1.5:
+            print(
+                f"Chan {ds.channum} has close assignments with RMS {rms_sort[0]} and {rms_sort[1]}, checking drop-one"
+            )
+            drop_one_assignment, drop_one_rms = compare_drop_ones(
+                ds.channum, e_out, assignment_list, rms_list, nmax=3
+            )
+            return name_or_e, e_out, drop_one_assignment, drop_one_rms
+        else:
+            return name_or_e, e_out, assignment_list[rms_idx[0]], rms_list[rms_idx[0]]
+    else:
+        return name_or_e, e_out, assignment_list[rms_idx[0]], rms_list[rms_idx[0]]
+
+
 def ds_learnCalibrationPlanFromEnergiesAndPeaks(
     self,
     attr,
@@ -215,11 +286,15 @@ def ds_learnCalibrationPlanFromEnergiesAndPeaks(
 ):
 
     if assignment == "nsls":
-        peak_positions, peak_heights = get_peaks(
-            self, attr, states, ph_fwhm, max_peak_ratio, min_closeness
-        )
-        name_or_e, e_out, assignment, rms = assignPeaks(
-            peak_positions, peak_heights, line_names, rms_cutoff=1, **kwargs
+        name_or_e, e_out, assignment, rms = nsls_assignment(
+            self,
+            attr,
+            states,
+            ph_fwhm,
+            line_names,
+            max_peak_ratio,
+            min_closeness,
+            **kwargs,
         )
     else:
         peak_positions, _peak_heights = mass.algorithms.find_local_maxima(
