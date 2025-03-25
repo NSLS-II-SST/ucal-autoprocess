@@ -375,6 +375,35 @@ def find_poly_residual(cal_energies, opt_assignment, degree, curvename="gain"):
     return coeff, residual, residual_rms
 
 
+def rms_histograms(allcounts):
+    medcounts = np.median(allcounts, axis=0)
+    medcounts = medcounts / np.sum(medcounts)
+    n = len(medcounts)
+    allcounts = allcounts / np.sum(allcounts, axis=1)[:, np.newaxis]
+    rms = np.sqrt(np.sum((medcounts[np.newaxis, :] - allcounts) ** 2 / n, axis=1))
+    return rms
+
+
+def cut_dissimilar_histograms(calibration_histograms, stddev_cutoff=2):
+    """
+    Identify bad channels based on similarity to the median calibration histogram.
+
+    stddev_cutoff : i.e, if 2, cut channels with rms error more than 2 std dev away from the average
+
+    Returns list of channel keys with rms error outside the given standard deviation cutoff
+    """
+    allkeys = list(calibration_histograms["counts"].keys())
+    allcounts = np.array([calibration_histograms["counts"][i] for i in allkeys])
+    all_rms = rms_histograms(allcounts)
+    bad_idx = np.arange(len(all_rms))[
+        all_rms > np.mean(all_rms) + stddev_cutoff * np.std(all_rms)
+    ]
+    bad_keys = [allkeys[i] for i in bad_idx]
+    bad_rms = [all_rms[i] for i in bad_idx]
+
+    return bad_keys, bad_rms, np.mean(all_rms)
+
+
 def data_calibrate(
     self,
     cal_state,
@@ -383,6 +412,7 @@ def data_calibrate(
     rms_cutoff=0.2,
     assignment="nsls",
     recipeName="energy",
+    stddev_cutoff=2,
     **kwargs,
 ):
     """
@@ -453,49 +483,55 @@ def data_calibrate(
                 assignment=assignment,
                 **kwargs,
             )
-            if rms < rms_cutoff:
-                processing_info["calibrated_channels"] += 1
-                processing_info["rms_per_channel"][ds.channum] = rms
-                processing_info["calibration_status"][
-                    ds.channum
-                ] = f"Calibrated (RMS: {rms:.3f})"
 
-                print(f"Calibrating {ds.channum} succeeded with rms: {rms}")
-                calibration = mass.EnergyCalibration(
-                    curvetype="gain", approximate=False
-                )
-                calibration.uncalibratedName = fv
-                for e, ph, line_name in zip(e_out, peaks, line_names):
-                    calibration.add_cal_point(ph, e, str(line_name))
-                ds.recipes.add(
-                    recipeName,
-                    calibration,
-                    [calibration.uncalibratedName],
-                    overwrite=True,
-                )
+            processing_info["calibrated_channels"] += 1
+            processing_info["rms_per_channel"][ds.channum] = rms
+            processing_info["calibration_status"][
+                ds.channum
+            ] = f"Calibrated (RMS: {rms:.3f})"
 
-                # Save calibration histogram
-                try:
-                    energies = ds.getAttr("energy", cal_state)
-                    counts, _ = np.histogram(energies, bins)
-                    processing_info["calibration_histograms"]["counts"][
-                        ds.channum
-                    ] = counts
-                except Exception as e:
-                    print(
-                        f"Failed to save histogram for channel {ds.channum}: {str(e)}"
-                    )
+            print(f"Calibrating {ds.channum} succeeded with rms: {rms}")
+            calibration = mass.EnergyCalibration(curvetype="gain", approximate=False)
+            calibration.uncalibratedName = fv
+            for e, ph, line_name in zip(e_out, peaks, line_names):
+                calibration.add_cal_point(ph, e, str(line_name))
+            ds.recipes.add(
+                recipeName,
+                calibration,
+                [calibration.uncalibratedName],
+                overwrite=True,
+            )
 
-            else:
+            # Save calibration histogram
+            try:
+                energies = ds.getAttr("energy", cal_state)
+                counts, _ = np.histogram(energies, bins)
+                processing_info["calibration_histograms"]["counts"][ds.channum] = counts
+            except Exception as e:
+                print(f"Failed to save histogram for channel {ds.channum}: {str(e)}")
+
+            if rms > rms_cutoff:
                 msg = f"Failed RMS cut: {rms:.3f} > {rms_cutoff}"
                 processing_info["calibration_status"][ds.channum] = msg
                 print(f"Chan {ds.channum}: {msg}")
                 ds.markBad(msg)
+            else:
+                print(f"Chan {ds.channum}: Calibrated with RMS: {rms:.3f}")
         except ValueError as e:
             msg = f"Failed peak assignment: {str(e)}"
             processing_info["calibration_status"][ds.channum] = msg
             print(f"Chan {ds.channum}: {msg}")
             ds.markBad(msg)
+
+    bad_keys, bad_rms, mean_rms = cut_dissimilar_histograms(
+        processing_info["calibration_histograms"], stddev_cutoff
+    )
+    for key in bad_keys:
+        processing_info["calibration_status"][
+            key
+        ] = f"Bad histogram (RMS: {bad_rms[key]:.3f})"
+        print(f"Chan {key}: Bad histogram (RMS: {bad_rms[key]:.3f})")
+        self[key].markBad(processing_info["calibration_status"][key])
 
     return processing_info
 
@@ -647,6 +683,28 @@ def plot_ds_calibration(ds, state, line_energies, axlist, legend=True):
         ax.legend()
 
 
+def plot_calibration_failure(ds, state, reason, savedir, overwrite=True):
+    """
+    Plot the RMS and peak failure for a given channel
+    """
+    if "energy" in ds.recipes:
+        ecal = ds.recipes["energy"].f
+    elif "energyRough" in ds.recipes:
+        ecal = ds.recipes["energyRough"].f
+    else:
+        return
+    ph_min = np.min(ecal._ph) * 0.9
+    ph_max = np.max(ecal._ph) * 1.1
+    ph_range = np.linspace(ph_min, ph_max, 1000)
+    attr = ecal.uncalibratedName
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    ds.plotHist(ph_range, attr, axis=ax, states=[state])
+    fig.suptitle(f"Chan {ds.channum}: {reason}")
+    fig.savefig(os.path.join(savedir, f"cal_failure_{ds.channum}_{attr}.png"))
+    plt.close(fig)
+
+
 def summarize_calibration(data, state, line_names, savedir, overwrite=False):
     """
     Should try to produce an overall summary
@@ -690,3 +748,14 @@ def summarize_calibration(data, state, line_names, savedir, overwrite=False):
         fig.save(savename)
     else:
         fig.close()
+
+    for channum, reason in data.whyChanBad.items():
+        if reason.startswith(
+            ("Failed RMS cut", "Failed peak assignment", "Bad histogram")
+        ):
+            try:
+                plot_calibration_failure(
+                    data[channum], state, reason, savedir, overwrite=overwrite
+                )
+            except Exception as e:
+                print(f"Failed to plot calibration failure for channel {channum}: {e}")
