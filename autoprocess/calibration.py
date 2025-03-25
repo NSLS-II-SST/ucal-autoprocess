@@ -119,6 +119,7 @@ def getAccuracyEstimates(energies, assignments, curvename="gain", maxPolyOrder=5
     bestRMSIndex = np.argmin(allRMS)
     bestRMS = allRMS[bestRMSIndex]
     bestPeaks = assignments[bestRMSIndex, :]
+    allRMS = np.array(allRMS)
 
     return bestPeaks, bestRMS, allRMS
 
@@ -278,7 +279,7 @@ def ds_learnCalibrationPlanFromEnergiesAndPeaks(
     attr,
     states,
     ph_fwhm,
-    line_names,
+    line_energies,
     assignment="nsls",
     max_peak_ratio=15,
     min_closeness=0.02,
@@ -291,7 +292,7 @@ def ds_learnCalibrationPlanFromEnergiesAndPeaks(
             attr,
             states,
             ph_fwhm,
-            line_names,
+            line_energies,
             max_peak_ratio,
             min_closeness,
             **kwargs,
@@ -301,7 +302,7 @@ def ds_learnCalibrationPlanFromEnergiesAndPeaks(
             self.getAttr(attr, indsOrStates=states), ph_fwhm
         )
         name_or_e, e_out, assignment = mass.algorithms.find_opt_assignment(
-            peak_positions, line_names, maxacc=0.1, **kwargs
+            peak_positions, line_energies, maxacc=0.1, **kwargs
         )
         rms = None
 
@@ -448,7 +449,7 @@ def data_calibrate(
                 attr=fv,
                 ph_fwhm=50,
                 states=cal_state,
-                line_names=line_energies,
+                line_energies=line_energies,
                 assignment=assignment,
                 **kwargs,
             )
