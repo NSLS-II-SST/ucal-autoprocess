@@ -526,11 +526,13 @@ def data_calibrate(
     bad_keys, bad_rms, mean_rms = cut_dissimilar_histograms(
         processing_info["calibration_histograms"], stddev_cutoff
     )
-    for key in bad_keys:
+    for i, key in enumerate(bad_keys):
         processing_info["calibration_status"][
             key
-        ] = f"Bad histogram (RMS: {bad_rms[key]:.3f})"
-        print(f"Chan {key}: Bad histogram (RMS: {bad_rms[key]:.3f})")
+        ] = f"Bad histogram (RMS: {bad_rms[i]:.3f} > {stddev_cutoff}*{mean_rms:.3f})"
+        print(
+            f"Chan {key}: Bad histogram (RMS: {bad_rms[i]:.3f} > {stddev_cutoff}*{mean_rms:.3f})"
+        )
         self[key].markBad(processing_info["calibration_status"][key])
 
     return processing_info
