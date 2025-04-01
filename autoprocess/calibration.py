@@ -695,7 +695,13 @@ def plot_ds_calibration(ds, state, line_energies, axlist, legend=True):
 
 
 def plot_calibration_failure(
-    ds, state, reason="", default_attr=None, savedir=None, close=True, overwrite=True
+    ds,
+    state,
+    reason="",
+    default_attr="filtValueDC",
+    savedir=None,
+    close=True,
+    overwrite=True,
 ):
     """
     Plot the RMS and peak failure for a given channel

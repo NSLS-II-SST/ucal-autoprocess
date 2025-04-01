@@ -387,6 +387,9 @@ class InteractiveCatalog:
             return
         elif channel in data.whyChanBad:
             print(f"Channel {channel} is bad: {data.whyChanBad[channel]}")
+            attr = self._last_processing_info.get("data_correction_info", {}).get(
+                "correctedName", "filtValueDC"
+            )
             plot_calibration_failure(ds, state, data.whyChanBad[channel], close=False)
             return
         else:
@@ -398,7 +401,10 @@ class InteractiveCatalog:
         state = get_tes_state(self.run)
         if line_names is None:
             line_names = get_line_names(self.run)
-        ds_info = calibrate_channel(ds, state, line_names, **kwargs)
+        attr = self._last_processing_info.get("data_correction_info", {}).get(
+            "correctedName", "filtValueDC"
+        )
+        ds_info = calibrate_channel(ds, attr, state, line_names, **kwargs)
         line_names = ds_info["line_names"]
         self.plot_calibration(channel, line_names)
 
