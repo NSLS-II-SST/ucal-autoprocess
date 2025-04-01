@@ -36,6 +36,9 @@ class InteractiveCatalog:
 
     Parameters
     ----------
+    save_directory : str
+        Directory to save processed data
+    catalog : Tiled Catalog
     start_index : int, optional
         Starting index in the catalog
     since : str, optional
@@ -54,6 +57,7 @@ class InteractiveCatalog:
         default_settings={},
     ):
         self.catalog = catalog
+        self.original_catalog = catalog
         self.filter_by_time(since, until)
         self._data = None
         self._save_directory = save_directory
@@ -70,15 +74,15 @@ class InteractiveCatalog:
             self.run = self.catalog[-1]
 
     def __str__(self):
-        return str(self.catalog._catalog)
+        return str(self.catalog)
 
     def __repr__(self):
-        return repr(self.catalog._catalog)
+        return repr(self.catalog)
 
     def filter_by_time(self, since=None, until=None):
         self._since = since
         self._until = until
-        self.catalog = self.catalog.search(TimeRange(since=since, until=until))
+        self.catalog = self.original_catalog.search(TimeRange(since=since, until=until))
 
     def refresh(self):
         self.filter_by_time(self._since, self._until)
@@ -232,7 +236,7 @@ class InteractiveCatalog:
 
     def advance_one_run(self):
         uid = self.run.start["uid"]
-        uids = list(self.catalog._catalog.keys())
+        uids = list(self.catalog.keys())
         idx = uids.index(uid)
 
         if idx == len(uids) - 1:
@@ -246,7 +250,7 @@ class InteractiveCatalog:
 
     def go_back_one_run(self):
         uid = self.run.start["uid"]
-        uids = list(self.catalog._catalog.keys())
+        uids = list(self.catalog.keys())
         idx = uids.index(uid)
 
         if idx == 0:
