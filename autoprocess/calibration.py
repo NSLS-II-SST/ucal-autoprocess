@@ -408,7 +408,6 @@ def calibrate_channel(
     ds,
     attr,
     cal_state,
-    line_energies,
     line_names,
     rms_cutoff=0.2,
     assignment="nsls",
@@ -416,6 +415,11 @@ def calibrate_channel(
     processing_info=None,
     **kwargs,
 ):
+
+    if processing_info is None:
+        processing_info = initialize_processing_info(line_names, total_channels=1)
+    line_energies = processing_info["calibration_lines"]
+
     e_out, peaks, rms = ds.learnCalibrationPlanFromEnergiesAndPeaks(
         attr=attr,
         ph_fwhm=50,
@@ -425,8 +429,6 @@ def calibrate_channel(
         **kwargs,
     )
 
-    if processing_info is None:
-        processing_info = initialize_processing_info(line_energies, total_channels=1)
     processing_info["calibrated_channels"] += 1
     processing_info["rms_per_channel"][ds.channum] = rms
     processing_info["calibration_status"][ds.channum] = f"Calibrated (RMS: {rms:.3f})"
@@ -543,7 +545,6 @@ def data_calibrate(
                 ds,
                 attr=fv,
                 cal_state=cal_state,
-                line_energies=line_energies,
                 line_names=line_names,
                 rms_cutoff=rms_cutoff,
                 assignment=assignment,
@@ -694,21 +695,28 @@ def plot_ds_calibration(ds, state, line_energies, axlist, legend=True):
 
 
 def plot_calibration_failure(
-    ds, state, reason="", savedir=None, close=True, overwrite=True
+    ds, state, reason="", default_attr=None, savedir=None, close=True, overwrite=True
 ):
     """
     Plot the RMS and peak failure for a given channel
     """
     if "energy" in ds.recipes.keys():
         ecal = ds.recipes["energy"].f
+        attr = ecal.uncalibratedName
+        ph_min = np.min(ecal._ph) * 0.9
+        ph_max = np.max(ecal._ph) * 1.1
     elif "energyRough" in ds.recipes.keys():
         ecal = ds.recipes["energyRough"].f
+        attr = ecal.uncalibratedName
+        ph_min = np.min(ecal._ph) * 0.9
+        ph_max = np.max(ecal._ph) * 1.1
     else:
-        return
-    ph_min = np.min(ecal._ph) * 0.9
-    ph_max = np.max(ecal._ph) * 1.1
+        print("No energy recipe found for channel {ds.channum}")
+        attr = default_attr
+        ph_min = 0
+        ph_max = 20000
+
     ph_range = np.linspace(ph_min, ph_max, 1000)
-    attr = ecal.uncalibratedName
     fig = plt.figure()
     ax = fig.add_subplot(111)
     ds.plotHist(ph_range, attr, axis=ax, states=[state])
