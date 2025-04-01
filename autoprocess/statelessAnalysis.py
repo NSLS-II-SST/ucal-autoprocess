@@ -114,7 +114,7 @@ def handle_run(
                 print(f"TES Already processed to {savename}, will not reprocess")
             # Check calibrated channels
             processing_info["success"] = True
-            if return_data:
+            if return_data or data is not None:
                 if data is None:
                     data = get_data(run)
                 correction_info = load_correction(run, data, save_directory)

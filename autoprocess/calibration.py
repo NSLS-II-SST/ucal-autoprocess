@@ -685,7 +685,9 @@ def plot_ds_calibration(ds, state, line_energies, axlist, legend=True):
         ax.legend()
 
 
-def plot_calibration_failure(ds, state, reason, savedir, overwrite=True):
+def plot_calibration_failure(
+    ds, state, reason, savedir=None, close=True, overwrite=True
+):
     """
     Plot the RMS and peak failure for a given channel
     """
@@ -703,11 +705,21 @@ def plot_calibration_failure(ds, state, reason, savedir, overwrite=True):
     ax = fig.add_subplot(111)
     ds.plotHist(ph_range, attr, axis=ax, states=[state])
     fig.suptitle(f"Chan {ds.channum}: {reason}")
-    fig.savefig(os.path.join(savedir, f"cal_failure_{ds.channum}_{attr}.png"))
-    plt.close(fig)
+    if savedir is not None:
+        fig.savefig(os.path.join(savedir, f"cal_failure_{ds.channum}_{attr}.png"))
+    if close:
+        plt.close(fig)
 
 
-def summarize_calibration(data, state, line_names, savedir, overwrite=False):
+def plot_calibration_channel(ds, state, line_names):
+    line_energies = get_line_energies(line_names)
+    fig = CalFigure(line_names, line_energies)
+    fig.plot_ds_calibration(ds, state)
+
+
+def summarize_calibration(
+    data, state, line_names, savedir, close=True, overwrite=False
+):
     """
     Should try to produce an overall summary
     Also, splitting into panels sometimes makes it hard to figure out if we are globally misaligned
@@ -742,13 +754,14 @@ def summarize_calibration(data, state, line_names, savedir, overwrite=False):
         fig.plot_ds_calibration(ds, state)
         lastchan = chan
         # work in progress
-    bigfig.save(os.path.join(savedir, "cal_summary_all_chan.png"))
+    if savedir is not None:
+        bigfig.save(os.path.join(savedir, "cal_summary_all_chan.png"), close=close)
 
-    filename = f"cal_{startchan}_to_{lastchan}.png"
-    savename = os.path.join(savedir, filename)
-    if not os.path.exists(savename) or overwrite:
-        fig.save(savename)
-    else:
+        filename = f"cal_{startchan}_to_{lastchan}.png"
+        savename = os.path.join(savedir, filename)
+        if not os.path.exists(savename) or overwrite:
+            fig.save(savename, close=close)
+    elif close:
         fig.close()
 
     for channum, reason in data.whyChanBad.items():
@@ -757,7 +770,12 @@ def summarize_calibration(data, state, line_names, savedir, overwrite=False):
         ):
             try:
                 plot_calibration_failure(
-                    data[channum], state, reason, savedir, overwrite=overwrite
+                    data[channum],
+                    state,
+                    reason,
+                    savedir,
+                    close=close,
+                    overwrite=overwrite,
                 )
             except Exception as e:
                 print(f"Failed to plot calibration failure for channel {channum}: {e}")

@@ -13,8 +13,10 @@ from .processing import (
     data_is_calibrated,
     data_is_corrected,
 )
+from .utils import get_calibration
 from .scanData import scandata_from_run
-from databroker.queries import TimeRange
+from databroker.queries import TimeRange, Key
+import datetime
 
 """
 Todo:
@@ -82,12 +84,73 @@ class InteractiveCatalog:
     def filter_by_time(self, since=None, until=None):
         self._since = since
         self._until = until
-        self.catalog = self.original_catalog.search(TimeRange(since=since, until=until))
+        self.catalog = self.catalog.search(TimeRange(since=since, until=until))
+
+    def filter_by_start_date(self, start_date, start_range=None):
+        """
+        Filter the catalog by the start date, assuming that a "start_datetime" key
+        exists to group runs by beamtime. start_range is provided to give a range for possible
+        beamtime start times. I.e, if start_range is 1, then the catalog will be filtered to
+        include all runs with a start_datetime within one day of start_date.
+
+        Parameters
+        ----------
+        start_date : str
+            Start date in form "YYYY-MM-DD"
+        start_range : int, optional
+            Number of days to look forward from start_date
+        """
+        if start_range is None:
+            start_range = 1
+
+        startdate = datetime.datetime.fromisoformat(start_date)
+        defaultdelta = datetime.timedelta(days=start_range)
+        untildatetime = startdate + defaultdelta
+        end_date = untildatetime.isoformat()
+        self.catalog = self.catalog.search(Key("start_datetime") > start_date).search(
+            Key("start_datetime") < end_date
+        )
+
+    def filter_by_proposal(self, proposal_id):
+        """
+        Filter the catalog by the proposal ID. (NSLS-II)
+
+        Parameters
+        ----------
+        proposal_id : str
+            Proposal ID in form "pass-<number>", stored as "data_session" in catalog
+        """
+        self.catalog = self.catalog.search(Key("data_session") == proposal_id)
+
+    def filter_by_saf(self, saf):
+        """
+        Filter the catalog by the SAF number. (NSLS-II)
+
+        Parameters
+        ----------
+        saf : int or str
+            SAF number in form "<number>", stored as "saf" in catalog
+        """
+        self.catalog = self.catalog.search(Key("saf") == str(saf))
 
     def refresh(self):
+        """
+        Refresh the catalog by re-filtering the original catalog with the currently
+        set time range. Additionally, update the microcalorimeter data.
+
+        Useful for interactively working with data that is being collected, where the
+        catalog is being updated in real time, and we need to get the latest run.
+        """
+        self.reset_filters()
         self.filter_by_time(self._since, self._until)
         if self._data is not None:
             self._data.refreshFromFiles()
+
+    def reset_filters(self):
+        """
+        Reset the catalog to the original catalog, discarding all filters
+        """
+        self.catalog = self.original_catalog
 
     def _clear_run(self):
         self.run = None
@@ -234,7 +297,25 @@ class InteractiveCatalog:
             self.load_scandata()
             return self.sd
 
+    def rewind_to_cal(self):
+        """
+        Rewind to the calibration data for the current run.
+        """
+        if self.run.start.get("scantype", "") == "calibration":
+            print("Already at calibration run!")
+            return self.run
+        try:
+            cal_run = get_calibration(self.run, self.catalog)
+            self.run = cal_run
+            return self.run
+        except Exception as e:
+            print(f"Error rewinding to calibration: {e}")
+            return None
+
     def advance_one_run(self):
+        """
+        Advance to the next run in the catalog.
+        """
         uid = self.run.start["uid"]
         uids = list(self.catalog.keys())
         idx = uids.index(uid)
@@ -249,6 +330,9 @@ class InteractiveCatalog:
             return self.run
 
     def go_back_one_run(self):
+        """
+        Rewind to the previous run in the catalog.
+        """
         uid = self.run.start["uid"]
         uids = list(self.catalog.keys())
         idx = uids.index(uid)
@@ -263,11 +347,24 @@ class InteractiveCatalog:
             return self.run
 
     def advance_to_latest_run(self):
+        """
+        Advance to the latest run in the catalog.
+        """
         self._clear_run()
         self.run = self.catalog[-1]
         return self.run
 
     def advance_to_index(self, index):
+        """
+        Advance to a specific index in the catalog, either by scan_id, index from the end, or
+        by uid.
+
+        Parameters
+        ----------
+        index : int, str, or uid
+            Index in the form of an integer scan_id, a negative integer index from the end, or
+            a uid string.
+        """
         self._clear_run()
         self.run = self.catalog[index]
         return self.run
