@@ -15,6 +15,11 @@ from .processing import (
 )
 from .utils import get_calibration
 from .scanData import scandata_from_run
+from .calibration import (
+    plot_calibration_channel,
+    plot_calibration_failure,
+    calibrate_channel,
+)
 from databroker.queries import TimeRange, Key
 import datetime
 
@@ -368,6 +373,34 @@ class InteractiveCatalog:
         self._clear_run()
         self.run = self.catalog[index]
         return self.run
+
+    def plot_calibration(self, channel, line_names=None):
+        data = self.get_data()
+        ds = data[channel]
+        state = get_tes_state(self.run)
+        if line_names is None:
+            line_names = self._last_processing_info.get(
+                "data_calibration_info", {}
+            ).get("line_names", get_line_names(self.run))
+        if not data_is_calibrated(data):
+            print("Run is not calibrated!")
+            return
+        elif channel in data.whyChanBad:
+            print(f"Channel {channel} is bad: {data.whyChanBad[channel]}")
+            plot_calibration_failure(ds, state, data.whyChanBad[channel], close=False)
+            return
+        else:
+            plot_calibration_channel(ds, state, line_names)
+
+    def test_calibrate_channel(self, channel, line_names=None, **kwargs):
+        data = self.get_data()
+        ds = data[channel]
+        state = get_tes_state(self.run)
+        if line_names is None:
+            line_names = get_line_names(self.run)
+        ds_info = calibrate_channel(ds, state, line_names, **kwargs)
+        line_names = ds_info["line_names"]
+        self.plot_calibration(channel, line_names)
 
     def get_emission(self, llim, ulim, eres=0.3, channels=None):
         """
