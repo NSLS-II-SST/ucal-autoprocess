@@ -168,6 +168,11 @@ def load_calibration(run, data, save_directory):
             if exists(info_filename):
                 with open(info_filename, "rb") as f:
                     processing_info = pickle.load(f)
+                for key in processing_info["status"].keys():
+                    if not processing_info["status"][key]["success"]:
+                        msg = processing_info["status"][key]["message"]
+                        print(f"Channel {key}: {msg}")
+                        data[key].markBad(msg)
                 return processing_info
             else:
                 return {"calibration_file": h5name, "calibration_saved": True}

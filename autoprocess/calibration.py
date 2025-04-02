@@ -346,9 +346,11 @@ mass.off.ChannelGroup.calibrationLoadFromHDF5Simple = data_calibrationLoadFromHD
 def data_calibrationSaveToHDF5Simple(self, h5name, recipeName="energy"):
     print(f"writing calibration to {h5name}")
     with h5py.File(h5name, "w") as h5:
-        for ds in self.values():
-            cal = ds.recipes[recipeName].f
-            cal.save_to_hdf5(h5, f"{ds.channum}")
+        with self.includeBad():
+            for ds in self.values():
+                if recipeName in ds.recipes.keys():
+                    cal = ds.recipes[recipeName].f
+                    cal.save_to_hdf5(h5, f"{ds.channum}")
         h5.attrs["calAttr"] = ds.calibrationPlanAttr
 
 
@@ -418,7 +420,7 @@ def calibrate_channel(
 
     if processing_info is None:
         processing_info = initialize_processing_info(line_names, total_channels=1)
-    line_energies = processing_info["calibration_lines"]
+    line_energies = processing_info["line_energies"]
 
     e_out, peaks, rms = ds.learnCalibrationPlanFromEnergiesAndPeaks(
         attr=attr,
@@ -429,9 +431,11 @@ def calibrate_channel(
         **kwargs,
     )
 
-    processing_info["calibrated_channels"] += 1
     processing_info["rms_per_channel"][ds.channum] = rms
-    processing_info["calibration_status"][ds.channum] = f"Calibrated (RMS: {rms:.3f})"
+    processing_info["status"][ds.channum] = {
+        "message": f"Calibrated (RMS: {rms:.3f})",
+        "success": True,
+    }
 
     print(f"Calibrating {ds.channum} succeeded with rms: {rms}")
     calibration = mass.EnergyCalibration(curvetype="gain", approximate=False)
@@ -446,7 +450,7 @@ def calibrate_channel(
     )
 
     # Save calibration histogram
-    bins = processing_info["calibration_histograms"]["bin_centers"]
+    bins = processing_info["histograms"]["bin_centers"]
     try:
         energies = ds.getAttr("energy", cal_state)
         counts, _ = np.histogram(energies, bins)
@@ -455,11 +459,13 @@ def calibrate_channel(
         print(f"Failed to save histogram for channel {ds.channum}: {str(e)}")
 
     if rms > rms_cutoff:
-        msg = f"Failed RMS cut: {rms:.3f} > {rms_cutoff}"
-        processing_info["calibration_status"][ds.channum] = msg
+        msg = f"Failed Calibration: Failed RMS cut ({rms:.3f} > {rms_cutoff})"
+        processing_info["status"][ds.channum]["message"] = msg
+        processing_info["status"][ds.channum]["success"] = False
         print(f"Chan {ds.channum}: {msg}")
         ds.markBad(msg)
     else:
+        processing_info["calibrated_channels"] += 1
         print(f"Chan {ds.channum}: Calibrated with RMS: {rms:.3f}")
 
     return processing_info
@@ -469,11 +475,11 @@ def initialize_processing_info(line_names, total_channels=1):
     line_energies = get_line_energies(line_names)  # Initialize processing info
 
     processing_info = {
-        "calibration_status": {},
+        "status": {},
         "rms_per_channel": {},
         "calibrated_channels": 0,
         "total_channels": total_channels,
-        "calibration_histograms": {
+        "histograms": {
             "counts": {},
             "energy_range": (min(line_energies) - 50, max(line_energies) + 50),
         },
@@ -481,13 +487,13 @@ def initialize_processing_info(line_names, total_channels=1):
 
     # Set up histogram bins
     bins = np.arange(
-        processing_info["calibration_histograms"]["energy_range"][0],
-        processing_info["calibration_histograms"]["energy_range"][1],
+        processing_info["histograms"]["energy_range"][0],
+        processing_info["histograms"]["energy_range"][1],
         1,
     )
     bin_centers = 0.5 * (bins[1:] + bins[:-1])
-    processing_info["calibration_histograms"]["bin_centers"] = bin_centers
-    processing_info["calibration_lines"] = line_energies
+    processing_info["histograms"]["bin_centers"] = bin_centers
+    processing_info["lines_energies"] = line_energies
     processing_info["line_names"] = line_names
     return processing_info
 
@@ -554,22 +560,19 @@ def data_calibrate(
             )
             processing_info.update(ds_info)
         except ValueError as e:
-            msg = f"Failed peak assignment: {str(e)}"
-            processing_info["calibration_status"][ds.channum] = msg
+            msg = f"Failed Calibration:Failed peak assignment: {str(e)}"
+            processing_info["status"][ds.channum] = {"message": msg, "success": False}
             print(f"Chan {ds.channum}: {msg}")
             ds.markBad(msg)
 
     bad_keys, bad_rms, mean_rms = cut_dissimilar_histograms(
-        processing_info["calibration_histograms"], stddev_cutoff
+        processing_info["histograms"], stddev_cutoff
     )
     for i, key in enumerate(bad_keys):
-        processing_info["calibration_status"][
-            key
-        ] = f"Bad histogram (RMS: {bad_rms[i]:.3e} > {stddev_cutoff}*{mean_rms:.3e})"
-        print(
-            f"Chan {key}: Bad histogram (RMS: {bad_rms[i]:.3e} > {stddev_cutoff}*{mean_rms:.3e})"
-        )
-        self[key].markBad(processing_info["calibration_status"][key])
+        msg = f"Failed Calibration: Bad histogram (RMS: {bad_rms[i]:.3e} > {stddev_cutoff}*{mean_rms:.3e})"
+        processing_info["status"][key] = {"message": msg, "success": False}
+        print(f"Chan {key}: {msg}")
+        self[key].markBad(msg)
 
     return processing_info
 
@@ -706,25 +709,38 @@ def plot_calibration_failure(
     """
     Plot the RMS and peak failure for a given channel
     """
+    fig = plt.figure()
     if "energy" in ds.recipes.keys():
+        ax = fig.add_subplot(212)
+        ax2 = fig.add_subplot(211)
         ecal = ds.recipes["energy"].f
         attr = ecal.uncalibratedName
         ph_min = np.min(ecal._ph) * 0.9
         ph_max = np.max(ecal._ph) * 1.1
+        e_min = np.min(ecal._energies) * 0.9
+        e_max = np.max(ecal._energies) * 1.1
+        e_range = np.linspace(e_min, e_max, 1000)
+        ds.plotHist(e_range, "energy", axis=ax2, states=[state])
     elif "energyRough" in ds.recipes.keys():
+        ax = fig.add_subplot(212)
+        ax2 = fig.add_subplot(211)
         ecal = ds.recipes["energyRough"].f
         attr = ecal.uncalibratedName
         ph_min = np.min(ecal._ph) * 0.9
         ph_max = np.max(ecal._ph) * 1.1
+        e_min = np.min(ecal._energies) * 0.9
+        e_max = np.max(ecal._energies) * 1.1
+        e_range = np.linspace(e_min, e_max, 1000)
+        ds.plotHist(e_range, "energyRough", axis=ax2, states=[state])
     else:
         print("No energy recipe found for channel {ds.channum}")
+        ax = fig.add_subplot(111)
         attr = default_attr
         ph_min = 0
         ph_max = 20000
 
     ph_range = np.linspace(ph_min, ph_max, 1000)
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
+
     ds.plotHist(ph_range, attr, axis=ax, states=[state])
     fig.suptitle(f"Chan {ds.channum}: {reason}")
     if savedir is not None:
