@@ -803,7 +803,9 @@ def summarize_calibration(
         fig.close()
 
     for channum, reason in data.whyChanBad.items():
+        print(f"Channel {channum}: {reason}")
         if reason.startswith("Failed Calibration"):
+            print(f"Plotting calibration failure for channel {channum}")
             try:
                 plot_calibration_failure(
                     data[channum],
