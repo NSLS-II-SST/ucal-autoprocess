@@ -493,7 +493,7 @@ def initialize_processing_info(line_names, total_channels=1):
     )
     bin_centers = 0.5 * (bins[1:] + bins[:-1])
     processing_info["histograms"]["bin_centers"] = bin_centers
-    processing_info["lines_energies"] = line_energies
+    processing_info["line_energies"] = line_energies
     processing_info["line_names"] = line_names
     return processing_info
 
