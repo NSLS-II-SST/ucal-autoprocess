@@ -454,7 +454,7 @@ def calibrate_channel(
     try:
         energies = ds.getAttr("energy", cal_state)
         counts, _ = np.histogram(energies, bins)
-        processing_info["calibration_histograms"]["counts"][ds.channum] = counts
+        processing_info["histograms"]["counts"][ds.channum] = counts
     except Exception as e:
         print(f"Failed to save histogram for channel {ds.channum}: {str(e)}")
 
