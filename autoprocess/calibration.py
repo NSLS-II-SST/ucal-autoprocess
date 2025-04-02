@@ -701,10 +701,10 @@ def plot_calibration_failure(
     ds,
     state,
     reason="",
-    default_attr="filtValueDC",
     savedir=None,
     close=True,
     overwrite=True,
+    default_attr="filtValueDC",
 ):
     """
     Plot the RMS and peak failure for a given channel
@@ -811,7 +811,7 @@ def summarize_calibration(
                     data[channum],
                     state,
                     reason,
-                    savedir,
+                    savedir=savedir,
                     close=close,
                     overwrite=overwrite,
                 )
