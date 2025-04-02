@@ -560,7 +560,7 @@ def data_calibrate(
             )
             processing_info.update(ds_info)
         except ValueError as e:
-            msg = f"Failed Calibration:Failed peak assignment: {str(e)}"
+            msg = f"Failed Calibration: Failed peak assignment: {str(e)}"
             processing_info["status"][ds.channum] = {"message": msg, "success": False}
             print(f"Chan {ds.channum}: {msg}")
             ds.markBad(msg)
@@ -803,9 +803,7 @@ def summarize_calibration(
         fig.close()
 
     for channum, reason in data.whyChanBad.items():
-        if reason.startswith(
-            ("Failed RMS cut", "Failed peak assignment", "Bad histogram")
-        ):
+        if reason.startswith("Failed Calibration"):
             try:
                 plot_calibration_failure(
                     data[channum],
