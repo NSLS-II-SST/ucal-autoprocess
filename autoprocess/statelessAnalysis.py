@@ -344,7 +344,7 @@ def save_processed_data(run, data, save_directory):
 
 def get_tes_rois(run, omit_array_keys=True):
     rois = {}
-    for key in run.primary.descriptors[0]["object_keys"]["tes"]:
+    for key in run.primary.descriptors[0]["object_keys"].get("tes", []):
         if "tes_mca" in key and key not in rois and key != "tes_mca_spectrum":
             llim = run.primary.descriptors[0]["data_keys"][key].get("llim", 200)
             ulim = run.primary.descriptors[0]["data_keys"][key].get("ulim", 2000)
@@ -352,7 +352,7 @@ def get_tes_rois(run, omit_array_keys=True):
 
     if not omit_array_keys:
         key = "tes_mca_spectrum"
-        if key in run.primary.descriptors[0]["object_keys"]["tes"]:
+        if key in run.primary.descriptors[0]["object_keys"].get("tes", []):
             llim = run.primary["config"]["tes"].get("tes_mca_llim", [200])[0]
             ulim = run.primary["config"]["tes"].get("tes_mca_ulim", [1000])[0]
             rois[key] = [llim, ulim]
