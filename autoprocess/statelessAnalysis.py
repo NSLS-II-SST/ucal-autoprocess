@@ -21,7 +21,7 @@ from .processing import (
     data_is_corrected,
 )
 
-from .scanData import scandata_from_run
+from .scanData import scandata_from_run, getScan2dGrids
 
 
 def get_data(run):
@@ -342,11 +342,7 @@ def save_processed_data(run, data, save_directory):
     np.savez(savename, timestamps=ts, energies=e, channels=ch)
 
 
-def get_tes_data(run, save_directory, logtype="run"):
-    """
-    rois : dictionary of {roi_name: (llim, ulim)}
-    """
-    scan_data = scandata_from_run(run, save_directory, logtype)
+def get_tes_rois(run, omit_array_keys=True):
     rois = {}
     for key in run.primary.descriptors[0]["object_keys"]["tes"]:
         if "tes_mca" in key and key not in rois and key != "tes_mca_spectrum":
@@ -354,11 +350,38 @@ def get_tes_data(run, save_directory, logtype="run"):
             ulim = run.primary.descriptors[0]["data_keys"][key].get("ulim", 2000)
             rois[key] = [llim, ulim]
 
+    if not omit_array_keys:
+        key = "tes_mca_spectrum"
+        if key in run.primary.descriptors[0]["object_keys"]["tes"]:
+            llim = run.primary["config"]["tes"].get("tes_mca_llim", [200])[0]
+            ulim = run.primary["config"]["tes"].get("tes_mca_ulim", [1000])[0]
+            rois[key] = [llim, ulim]
+    return rois
+
+
+def get_tes_data(run, save_directory, logtype="run", omit_array_keys=True):
+    """
+    rois : dictionary of {roi_name: (llim, ulim)}
+    """
+    scan_data = scandata_from_run(run, save_directory, logtype)
+    rois = get_tes_rois(run, omit_array_keys)
+
     tes_data = {}
     for roi in rois:
+        if roi == "tes_mca_spectrum":
+            continue
         llim, ulim = rois[roi]
         y, x = scan_data.getScan1d(llim, ulim)
         tes_data[roi] = y
+
+    if not omit_array_keys:
+        key = "tes_mca_spectrum"
+        llim, ulim = rois[key]
+        counts, mono_grid, energy_grid = scan_data.getScan2d(
+            llim=llim, ulim=ulim, eres=0.3
+        )
+        tes_data[key] = [counts, mono_grid, energy_grid]
+
     # Kludge for certain older data, and non-XAS data that was still scanning the energy
     if "tes_mca_pfy" not in rois:
         if scan_data.log.motor_name == "en_energy":

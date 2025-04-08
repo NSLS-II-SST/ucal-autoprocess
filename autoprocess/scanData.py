@@ -71,11 +71,7 @@ class ScanData:
 
     def getScan2d(self, llim, ulim, eres=0.3, channels=None, eloss=False):
         mono_list = self.log.motor_vals
-        n_e_pts = int((ulim - llim) // eres)
-        e_bins = np.linspace(llim, ulim, n_e_pts)
-        e_centers = (e_bins[1:] + e_bins[:-1]) / 2
-
-        mono_grid, energy_grid = np.meshgrid(mono_list, e_centers)
+        mono_grid, energy_grid, e_bins = getScan2dGrids(mono_list, llim, ulim, eres)
         counts = np.zeros_like(mono_grid)
         for n, m in enumerate(mono_list):
             offset = m if eloss else 0
@@ -118,6 +114,15 @@ class ScanData:
         mono_arr = np.hstack(mono_arr)
         emission_arr = np.hstack(emission_arr)
         return mono_arr, emission_arr
+
+
+def getScan2dGrids(mono_list, llim, ulim, eres=0.3):
+    n_e_pts = int((ulim - llim) // eres)
+    e_bins = np.linspace(llim, ulim, n_e_pts)
+    e_centers = (e_bins[1:] + e_bins[:-1]) / 2
+
+    mono_grid, energy_grid = np.meshgrid(mono_list, e_centers)
+    return mono_grid, energy_grid, e_bins
 
 
 def data_from_file(filename):
