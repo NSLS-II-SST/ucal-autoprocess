@@ -10,6 +10,7 @@ from .utils import (
     get_tes_arrays,
     get_savename,
     get_calibration,
+    get_model_file,
 )
 
 from .processing import (
@@ -210,6 +211,10 @@ def handle_calibration_run(run, data, catalog, save_directory, processing_dict={
     scan_id = run.start.get("scan_id", "")
     correction_dict = processing_dict.get("correction_dict", {})
     calibration_dict = processing_dict.get("calibration_dict", {})
+    use_5lag = correction_dict.get("use5LagFilters", False)
+    if use_5lag:
+        model_path = get_model_file(run, catalog)
+        correction_dict["5lagModelFile"] = model_path
     print(f"Handling Calibration Run for scan {scan_id}")
     print("Correcting data")
     correction_info = correct_run(run, data, save_directory, correction_dict)
