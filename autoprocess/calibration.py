@@ -780,9 +780,11 @@ def summarize_calibration(
         title="All ds calibration stacked",
     )
     fig = CalFigure(line_names, line_energies)
-    startchan = 1
+    offset = data.keys()[0]
+    startchan = offset
     for n, chan in enumerate(data):
-        if chan > startchan + nstack - 1:
+        if (chan - (chan - offset) % nstack) > startchan:
+            startchan = chan - (chan - offset) % nstack
             filename = f"cal_{startchan}_to_{startchan + nstack - 1}.png"
             savename = os.path.join(savedir, filename)
             if not os.path.exists(savename) or overwrite:
