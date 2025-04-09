@@ -118,7 +118,9 @@ def load_correction(run, data, save_directory):
         return False
 
 
-def calibrate_run(run, data, save_directory=None, calibration_dict={}):
+def calibrate_run(
+    run, data, save_directory=None, calibration_dict={}, cut_histograms=True
+):
     """
     Calibrate the run data and save calibration results.
 
@@ -146,7 +148,9 @@ def calibrate_run(run, data, save_directory=None, calibration_dict={}):
     print(f"Calibrating {state} with lines {line_names}")
 
     fvAttr = _cal_dict.pop("fvAttr", "filtValueDC")
-    processing_info = data.calibrate(state, line_names, fvAttr, **_cal_dict)
+    processing_info = data.calibrate(
+        state, line_names, fvAttr, cut_histograms=cut_histograms, **_cal_dict
+    )
 
     if save_directory is not None:
         h5name = get_calibration_file(run, save_directory, make_dirs=True)
