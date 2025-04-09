@@ -455,7 +455,7 @@ def calibrate_channel(
     )
 
     # Save calibration histogram
-    bins = processing_info["histograms"]["bin_centers"]
+    bins = processing_info["histograms"]["bins"]
     try:
         energies = ds.getAttr("energy", cal_state)
         counts, _ = np.histogram(energies, bins)
@@ -497,6 +497,7 @@ def initialize_processing_info(line_names, total_channels=1):
         1,
     )
     bin_centers = 0.5 * (bins[1:] + bins[:-1])
+    processing_info["histograms"]["bins"] = bins
     processing_info["histograms"]["bin_centers"] = bin_centers
     processing_info["line_energies"] = line_energies
     processing_info["line_names"] = line_names
