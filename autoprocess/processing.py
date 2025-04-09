@@ -41,7 +41,7 @@ def correct_run(
         data.add5LagRecipes(model_path)
         correction_info["5lagModelFile"] = model_path
         dcUncorrectedName = dcUncorrectedName + "5Lag"
-        dcCorrectedName = dcUncorrectedName + "5LagDC"
+        dcCorrectedName = dcUncorrectedName + "DC"
 
     print(f"Correcting data for {state}")
     correction_info["dcIndicatorName"] = dcIndicatorName
