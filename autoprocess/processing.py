@@ -63,7 +63,13 @@ def correct_run(
         prelim_cal_dict = {}
         prelim_cal_dict.update(calibration_dict)
         prelim_cal_dict["fvAttr"] = dcCorrectedName
-        calibrate_run(run, data, save_directory=None, calibration_dict=prelim_cal_dict)
+        calibrate_run(
+            run,
+            data,
+            save_directory=None,
+            calibration_dict=prelim_cal_dict,
+            cut_histograms=False,
+        )
         pcIndicatorName = correction_dict.get("pcIndicatorName", "filtPhase")
         pcUncorrectedName = dcCorrectedName
         pcCorrectedName = dcCorrectedName + "PC"

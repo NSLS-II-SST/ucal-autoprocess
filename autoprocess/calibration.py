@@ -513,6 +513,7 @@ def data_calibrate(
     assignment="nsls",
     recipeName="energy",
     stddev_cutoff=2,
+    cut_histograms=True,
     **kwargs,
 ):
     """
@@ -571,14 +572,15 @@ def data_calibrate(
             print(f"Chan {ds.channum}: {msg}")
             ds.markBad(msg)
 
-    bad_keys, bad_rms, mean_rms = cut_dissimilar_histograms(
-        processing_info["histograms"], stddev_cutoff
-    )
-    for i, key in enumerate(bad_keys):
-        msg = f"Failed Calibration: Bad histogram (RMS: {bad_rms[i]:.3e} > {stddev_cutoff}*{mean_rms:.3e})"
-        processing_info["status"][key] = {"message": msg, "success": False}
-        print(f"Chan {key}: {msg}")
-        self[key].markBad(msg)
+    if cut_histograms:
+        bad_keys, bad_rms, mean_rms = cut_dissimilar_histograms(
+            processing_info["histograms"], stddev_cutoff
+        )
+        for i, key in enumerate(bad_keys):
+            msg = f"Failed Calibration: Bad histogram (RMS: {bad_rms[i]:.3e} > {stddev_cutoff}*{mean_rms:.3e})"
+            processing_info["status"][key] = {"message": msg, "success": False}
+            print(f"Chan {key}: {msg}")
+            self[key].markBad(msg)
 
     return processing_info
 
