@@ -784,13 +784,14 @@ def summarize_calibration(
     startchan = offset
     for n, chan in enumerate(data):
         if (chan - (chan - offset) % nstack) > startchan:
-            startchan = chan - (chan - offset) % nstack
             filename = f"cal_{startchan}_to_{startchan + nstack - 1}.png"
             savename = os.path.join(savedir, filename)
             if not os.path.exists(savename) or overwrite:
                 fig.save(savename)
             else:
                 fig.close()
+            startchan = chan - (chan - offset) % nstack
+
             fig = CalFigure(line_names, line_energies)
 
         ds = data[chan]
