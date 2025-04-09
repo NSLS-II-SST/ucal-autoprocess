@@ -792,7 +792,6 @@ def summarize_calibration(
             else:
                 fig.close()
             fig = CalFigure(line_names, line_energies)
-            startchan = startchan + nstack
 
         ds = data[chan]
         bigfig.plot_ds_calibration(ds, state, legend=False)
