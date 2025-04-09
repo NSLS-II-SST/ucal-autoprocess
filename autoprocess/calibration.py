@@ -346,12 +346,17 @@ mass.off.ChannelGroup.calibrationLoadFromHDF5Simple = data_calibrationLoadFromHD
 def data_calibrationSaveToHDF5Simple(self, h5name, recipeName="energy"):
     print(f"writing calibration to {h5name}")
     with h5py.File(h5name, "w") as h5:
+        ds = self.firstGoodChannel()
+        h5.attrs["calAttr"] = ds.calibrationPlanAttr
+
         with self.includeBad():
             for ds in self.values():
                 if recipeName in ds.recipes.keys():
-                    cal = ds.recipes[recipeName].f
-                    cal.save_to_hdf5(h5, f"{ds.channum}")
-        h5.attrs["calAttr"] = ds.calibrationPlanAttr
+                    try:
+                        cal = ds.recipes[recipeName].f
+                        cal.save_to_hdf5(h5, f"{ds.channum}")
+                    except:
+                        print(f"Failed to save calibration for channel {ds.channum}")
 
 
 mass.off.ChannelGroup.calibrationSaveToHDF5Simple = data_calibrationSaveToHDF5Simple
