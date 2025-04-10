@@ -162,12 +162,7 @@ def log_from_run(run):
         motor_name = "time"
         motor_vals = start_time
     else:
-        try:
-            motor_name = run.metadata["start"]["motors"][0]
-            motor_vals = run.metadata["start"]["plan_args"]["args"][1]
-        except KeyError:
-            motor_name = "time"
-            motor_vals = start_time
+        motor_name, motor_vals = motor_vals_from_run(run)
     return LogData(start_time, stop_time, motor_name, motor_vals)
 
 
@@ -179,3 +174,34 @@ def scandata_from_run(run, save_directory, logtype="json"):
     else:
         log = log_from_json(run)
     return ScanData(data, log)
+
+
+def motor_vals_from_run(run):
+    """
+    Get the motor values from a run. This is trickier than expected because
+    we usually want the motor setpoints, not the readback, which has some jitter.
+    But the setpoints are not available in a consistent way.
+    """
+
+    if "motors" in run.start:
+        motor_name = run.start["motors"][0]
+        if run.start.get("plan_pattern", "") == "inner_product":
+            # We just gave a start, stop, and num points, need to recreate the setpoints
+            start = run.start["plan_args"]["args"][1]
+            stop = run.start["plan_args"]["args"][2]
+            num = run.start["plan_args"]["num"]
+            motor_vals = np.linspace(start, stop, num)
+        elif run.start.get("plan_pattern", "") == "inner_list_product":
+            # We gave a list of motor values
+            motor_vals = run.start["plan_args"]["args"][1]
+        else:
+            # Maybe the motor has a setpoint? I.e, en_energy -> en_energy_setpoint
+            if motor_name + "_setpoint" in run.primary["data"]:
+                motor_vals = run.primary["data"][motor_name + "_setpoint"][:]
+            else:
+                # Fall back on getting the motor values from the run data
+                motor_vals = run.primary["data"][motor_name][:]
+    else:
+        motor_name = "time"
+        motor_vals = run.primary["timestamps"]["time"].read()
+    return motor_name, motor_vals
