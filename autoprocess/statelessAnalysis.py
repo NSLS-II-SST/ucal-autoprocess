@@ -32,6 +32,18 @@ def get_data(run):
     return data
 
 
+def close_data(data):
+    try:
+        if data is not None:
+            for ds in data.values():
+                ds.offFile.close()
+    except Exception as e:
+        print(f"Error closing data: {e}")
+    finally:
+        return None
+    return None
+
+
 def handle_run(
     uid,
     catalog,
@@ -139,6 +151,8 @@ def handle_run(
         processing_info["reason"] = f"Error loading TES data: {e}"
         if verbose:
             print(f"Error {e} for .off files for {run.start.get('scan_id', '')}")
+        if should_close_data:
+            data = close_data(data)
         return processing_info, data
 
     # Handle calibration runs first
@@ -170,13 +184,13 @@ def handle_run(
         processing_info["reason"] = f"Error while handling run: {e}"
         if verbose:
             print(f"Error {e} while handling {run.start['uid']}")
+        if should_close_data:
+            data = close_data(data)
         return processing_info, data
 
     if should_close_data:
         print("Offloading TES Data Files")
-        for ds in data.values():
-            ds.offFile.close()
-        data = None
+        data = close_data(data)
     else:
         print("Not offloading TES Data Files")
 
