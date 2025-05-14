@@ -33,7 +33,10 @@ def get_config_dict(run):
 def get_noise_uid(run):
     config = get_config_dict(run)
     if "tes_noise_uid" not in config:
-        raise KeyError("No noise UID found in run metadata")
+        if "last_noise" in run.start:
+            return run.start["last_noise"]
+        else:
+            raise KeyError("No noise UID found in run metadata")
     return config["tes_noise_uid"]
 
 
@@ -63,7 +66,10 @@ def get_projector(run, catalog):
 def get_calibration_uid(run):
     config = get_config_dict(run)
     if "tes_calibration_uid" not in config:
-        raise KeyError("No calibration UID found in run metadata")
+        if "last_cal" in run.start:
+            return run.start["last_cal"]
+        else:
+            raise KeyError("No calibration UID found in run metadata")
     return config["tes_calibration_uid"]
 
 

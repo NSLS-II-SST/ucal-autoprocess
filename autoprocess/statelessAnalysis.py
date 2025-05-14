@@ -373,7 +373,7 @@ def get_tes_rois(run, omit_array_keys=True):
         key = "tes_mca_spectrum"
         if key in run.primary.descriptors[0]["object_keys"].get("tes", []):
             llim = run.primary["config"]["tes"].get("tes_mca_llim", [200])[0]
-            ulim = run.primary["config"]["tes"].get("tes_mca_ulim", [1000])[0]
+            ulim = run.primary["config"]["tes"].get("tes_mca_ulim", [1200])[0]
             rois[key] = [llim, ulim]
     return rois
 
