@@ -10,6 +10,7 @@ from .utils import (
     get_tes_arrays,
     get_savename,
     get_calibration,
+    get_model_file,
 )
 
 from .processing import (
@@ -21,7 +22,7 @@ from .processing import (
     data_is_corrected,
 )
 
-from .scanData import scandata_from_run
+from .scanData import scandata_from_run, getScan2dGrids
 
 
 def get_data(run):
@@ -31,7 +32,28 @@ def get_data(run):
     return data
 
 
-def handle_run(uid, catalog, save_directory, reprocess=False, verbose=True):
+def close_data(data):
+    try:
+        if data is not None:
+            for ds in data.values():
+                ds.offFile.close()
+    except Exception as e:
+        print(f"Error closing data: {e}")
+    finally:
+        return None
+    return None
+
+
+def handle_run(
+    uid,
+    catalog,
+    save_directory,
+    reprocess=False,
+    verbose=True,
+    data=None,
+    return_data=False,
+    processing_dict={},
+):
     """
     Process a single run given its UID.
 
@@ -55,6 +77,10 @@ def handle_run(uid, catalog, save_directory, reprocess=False, verbose=True):
     """
 
     run = catalog[uid]
+    if data is None and not return_data:
+        should_close_data = True
+    else:
+        should_close_data = False
 
     processing_info = {
         "processed": False,
@@ -77,14 +103,14 @@ def handle_run(uid, catalog, save_directory, reprocess=False, verbose=True):
         processing_info["reason"] = "No TES in run"
         if verbose:
             print("No TES in run, skipping!")
-        return processing_info
+        return processing_info, data
 
     scantype = run.start.get("scantype", "")
     if scantype in ["noise", "projectors"]:
         processing_info["reason"] = f"Scantype '{scantype}' does not require processing"
         if verbose:
             print("Nothing to be done for Noise or Projectors")
-        return processing_info
+        return processing_info, data
 
     if not reprocess:
         try:
@@ -93,7 +119,7 @@ def handle_run(uid, catalog, save_directory, reprocess=False, verbose=True):
             processing_info["reason"] = f"Could not get TES Filename: {e}"
             if verbose:
                 print(f"Could not get TES Filename: {e}")
-            return processing_info
+            return processing_info, data
         if exists(savename):
             processing_info["processed"] = True
             processing_info["reason"] = f"TES already processed to {savename}"
@@ -101,20 +127,33 @@ def handle_run(uid, catalog, save_directory, reprocess=False, verbose=True):
                 print(f"TES Already processed to {savename}, will not reprocess")
             # Check calibrated channels
             processing_info["success"] = True
-            return processing_info
+            if return_data or data is not None:
+                if data is None:
+                    data = get_data(run)
+                correction_info = load_correction(run, data, save_directory)
+                calibration_info = load_calibration(run, data, save_directory)
+                processing_info["data_correction_info"] = correction_info
+                processing_info["data_calibration_info"] = calibration_info
+            return processing_info, data
 
     # Get data files
     try:
-        if verbose:
-            print(f"Loading TES Data from {get_filename(run)}")
-        data = get_data(run)
-        if verbose:
-            print("TES Data loaded")
+        if data is None:
+            if verbose:
+                print(f"Loading TES Data from {get_filename(run)}")
+            data = get_data(run)
+            if verbose:
+                print("TES Data loaded")
+        else:
+            if verbose:
+                print("Using provided TES Data")
     except Exception as e:
         processing_info["reason"] = f"Error loading TES data: {e}"
         if verbose:
             print(f"Error {e} for .off files for {run.start.get('scan_id', '')}")
-        return processing_info
+        if should_close_data:
+            data = close_data(data)
+        return processing_info, data
 
     # Handle calibration runs first
     data.verbose = verbose
@@ -122,10 +161,12 @@ def handle_run(uid, catalog, save_directory, reprocess=False, verbose=True):
     try:
         if scantype == "calibration":
             _processing_info = handle_calibration_run(
-                run, data, catalog, save_directory
+                run, data, catalog, save_directory, processing_dict
             )
         else:
-            _processing_info = handle_science_run(run, data, catalog, save_directory)
+            _processing_info = handle_science_run(
+                run, data, catalog, save_directory, processing_dict
+            )
 
         # Save and remove run info before update
         run_info = processing_info.pop("run_info")
@@ -143,20 +184,24 @@ def handle_run(uid, catalog, save_directory, reprocess=False, verbose=True):
         processing_info["reason"] = f"Error while handling run: {e}"
         if verbose:
             print(f"Error {e} while handling {run.start['uid']}")
-        return processing_info
+        if should_close_data:
+            data = close_data(data)
+        return processing_info, data
 
-    print("Offloading TES Data Files")
-    for ds in data.values():
-        ds.offFile.close()
+    if should_close_data:
+        print("Offloading TES Data Files")
+        data = close_data(data)
+    else:
+        print("Not offloading TES Data Files")
 
     # Collect processing information
     processing_info["processed"] = True
     processing_info["success"] = True
 
-    return processing_info
+    return processing_info, data
 
 
-def handle_calibration_run(run, data, catalog, save_directory):
+def handle_calibration_run(run, data, catalog, save_directory, processing_dict={}):
     """
     Process a calibration run.
 
@@ -178,15 +223,24 @@ def handle_calibration_run(run, data, catalog, save_directory):
     """
 
     scan_id = run.start.get("scan_id", "")
-
+    correction_dict = processing_dict.get("correction_dict", {})
+    calibration_dict = processing_dict.get("calibration_dict", {})
+    use_5lag = correction_dict.get("use5LagFilters", False)
+    if use_5lag:
+        model_path = get_model_file(run, catalog)
+        correction_dict["5lagModelFile"] = model_path
     print(f"Handling Calibration Run for scan {scan_id}")
     print("Correcting data")
-    correct_run(run, data, save_directory)
+    correction_info = correct_run(run, data, save_directory, correction_dict)
+    _cal_dict = {}
+    _cal_dict.update(calibration_dict)
+    _cal_dict["fvAttr"] = correction_info["correctedName"]
     print(f"Calibrating Scan {scan_id}")
-    cal_info = calibrate_run(run, data, save_directory)
+    cal_info = calibrate_run(run, data, save_directory, _cal_dict)
     save_processed_data(run, data, save_directory)
 
     processing_info = {
+        "data_correction_info": correction_info,
         "data_calibration_info": {
             "run_info": {
                 "uid": run.start.get("uid", ""),
@@ -196,14 +250,14 @@ def handle_calibration_run(run, data, catalog, save_directory):
                 "timestamp": run.start.get("time", ""),
             },
             **cal_info,  # Include all calibration information
-        }
+        },
     }
     processing_info["calibration_applied"] = True
 
     return processing_info
 
 
-def handle_science_run(run, data, catalog, save_directory):
+def handle_science_run(run, data, catalog, save_directory, processing_dict={}):
     """
     Process a science run.
 
@@ -269,7 +323,9 @@ def handle_science_run(run, data, catalog, save_directory):
     else:
         print("Performing new calibration")
         # Get calibration info and merge it with processing info
-        cal_info = handle_calibration_run(cal_run, data, catalog, save_directory)
+        cal_info = handle_calibration_run(
+            cal_run, data, catalog, save_directory, processing_dict
+        )
         processing_info.update(cal_info)  # This adds data_calibration_info
 
         # Update processing info with calibration results
@@ -305,23 +361,48 @@ def save_processed_data(run, data, save_directory):
     np.savez(savename, timestamps=ts, energies=e, channels=ch)
 
 
-def get_tes_data(run, save_directory, logtype="run"):
-    """
-    rois : dictionary of {roi_name: (llim, ulim)}
-    """
-    scan_data = scandata_from_run(run, save_directory, logtype)
+def get_tes_rois(run, omit_array_keys=True):
     rois = {}
-    for key in run.primary.descriptors[0]["object_keys"]["tes"]:
+    for key in run.primary.descriptors[0]["object_keys"].get("tes", []):
         if "tes_mca" in key and key not in rois and key != "tes_mca_spectrum":
             llim = run.primary.descriptors[0]["data_keys"][key].get("llim", 200)
             ulim = run.primary.descriptors[0]["data_keys"][key].get("ulim", 2000)
             rois[key] = [llim, ulim]
 
+    if not omit_array_keys:
+        key = "tes_mca_spectrum"
+        if key in run.primary.descriptors[0]["object_keys"].get("tes", []):
+            llim = run.primary["config"]["tes"].get("tes_mca_llim", [200])[0]
+            ulim = max(run.primary["config"]["tes"].get("tes_mca_ulim", [1200])[0], 1200)
+            if 'tes_mca_pfy' in rois:
+                ulim = max(ulim, rois['tes_mca_pfy'][1])
+            rois[key] = [llim, ulim]
+    return rois
+
+
+def get_tes_data(run, save_directory, logtype="run", omit_array_keys=True):
+    """
+    rois : dictionary of {roi_name: (llim, ulim)}
+    """
+    scan_data = scandata_from_run(run, save_directory, logtype)
+    rois = get_tes_rois(run, omit_array_keys)
+
     tes_data = {}
     for roi in rois:
+        if roi == "tes_mca_spectrum":
+            continue
         llim, ulim = rois[roi]
         y, x = scan_data.getScan1d(llim, ulim)
         tes_data[roi] = y
+
+    if not omit_array_keys:
+        key = "tes_mca_spectrum"
+        llim, ulim = rois[key]
+        counts, mono_grid, energy_grid = scan_data.getScan2d(
+            llim=llim, ulim=ulim, eres=0.3
+        )
+        tes_data[key] = [counts, mono_grid, energy_grid]
+
     # Kludge for certain older data, and non-XAS data that was still scanning the energy
     if "tes_mca_pfy" not in rois:
         if scan_data.log.motor_name == "en_energy":

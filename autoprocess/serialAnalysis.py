@@ -1,32 +1,27 @@
 import mass
 import numpy as np
 import matplotlib.pyplot as plt
-from ucalpost.databroker.run import (
-    summarize_run,
-    get_samplename,
-)
-from .utils import get_tes_state, get_filename
-from ucalpost.databroker.catalog import WrappedDatabroker
-from ucalpost.tes.process_classes import (
-    log_from_run,
-    ProcessedData,
-    ScanData,
-    LogData,
-    data_from_file,
-)
-from ucalpost.tes.noise import get_noise_and_projectors, load_mass
-from tiled.client import from_uri
+from .utils import get_tes_state, get_filename, get_samplename, get_savename
 from os.path import dirname, join, exists, basename
-import os
-from . import calibration
-import json
-from mass.off import (
-    ChannelGroup,
-    getOffFileListFromOneFile,
-    Channel,
-    labelPeak,
-    labelPeaks,
+from mass.off import getOffFileListFromOneFile
+from .statelessAnalysis import (
+    handle_run,
+    save_processed_data,
+    get_data,
 )
+from .processing import (
+    data_is_calibrated,
+    data_is_corrected,
+)
+from .utils import get_calibration
+from .scanData import scandata_from_run
+from .calibration import (
+    plot_calibration_channel,
+    plot_calibration_failure,
+    calibrate_channel,
+)
+from databroker.queries import TimeRange, Key
+import datetime
 
 """
 Todo:
@@ -42,38 +37,125 @@ plt.close("all")
 plt.ion()
 
 
-class SerialAnalysis:
-    def __init__(self, start_index=None, since=None, until=None):
-        self.raw_catalog = WrappedDatabroker(from_uri("http://172.31.133.41:8000"))
+class InteractiveCatalog:
+    """
+    Class for serial analysis of TES data.
+
+    Parameters
+    ----------
+    save_directory : str
+        Directory to save processed data
+    catalog : Tiled Catalog
+    start_index : int, optional
+        Starting index in the catalog
+    since : str, optional
+        Start time for filtering catalog
+    until : str, optional
+        End time for filtering catalog
+    """
+
+    def __init__(
+        self,
+        save_directory,
+        catalog,
+        start_index=None,
+        since=None,
+        until=None,
+        default_settings={},
+    ):
+        self.catalog = catalog
+        self.original_catalog = catalog
         self.filter_by_time(since, until)
         self._data = None
-        self._save_directory = "/home/decker/processed"
+        self._save_directory = save_directory
         self._clear_run()
         self._since = None
         self._until = None
+        self._default_settings = default_settings
         if start_index is not None:
             try:
                 self.run = self.catalog[start_index]
-            except:
+            except Exception:
                 self.run = self.catalog[-1]
         else:
             self.run = self.catalog[-1]
 
     def __str__(self):
-        return str(self.catalog._catalog)
+        return str(self.catalog)
 
     def __repr__(self):
-        return repr(self.catalog._catalog)
+        return repr(self.catalog)
 
     def filter_by_time(self, since=None, until=None):
         self._since = since
         self._until = until
-        self.catalog = self.raw_catalog.filter_by_time(since, until).filter_by_stop()
+        self.catalog = self.catalog.search(TimeRange(since=since, until=until))
+
+    def filter_by_start_date(self, start_date, start_range=None):
+        """
+        Filter the catalog by the start date, assuming that a "start_datetime" key
+        exists to group runs by beamtime. start_range is provided to give a range for possible
+        beamtime start times. I.e, if start_range is 1, then the catalog will be filtered to
+        include all runs with a start_datetime within one day of start_date.
+
+        Parameters
+        ----------
+        start_date : str
+            Start date in form "YYYY-MM-DD"
+        start_range : int, optional
+            Number of days to look forward from start_date
+        """
+        if start_range is None:
+            start_range = 1
+
+        startdate = datetime.datetime.fromisoformat(start_date)
+        defaultdelta = datetime.timedelta(days=start_range)
+        untildatetime = startdate + defaultdelta
+        end_date = untildatetime.isoformat()
+        self.catalog = self.catalog.search(Key("start_datetime") > start_date).search(
+            Key("start_datetime") < end_date
+        )
+
+    def filter_by_proposal(self, proposal_id):
+        """
+        Filter the catalog by the proposal ID. (NSLS-II)
+
+        Parameters
+        ----------
+        proposal_id : str
+            Proposal ID in form "pass-<number>", stored as "data_session" in catalog
+        """
+        self.catalog = self.catalog.search(Key("data_session") == proposal_id)
+
+    def filter_by_saf(self, saf):
+        """
+        Filter the catalog by the SAF number. (NSLS-II)
+
+        Parameters
+        ----------
+        saf : int or str
+            SAF number in form "<number>", stored as "saf" in catalog
+        """
+        self.catalog = self.catalog.search(Key("saf") == str(saf))
 
     def refresh(self):
+        """
+        Refresh the catalog by re-filtering the original catalog with the currently
+        set time range. Additionally, update the microcalorimeter data.
+
+        Useful for interactively working with data that is being collected, where the
+        catalog is being updated in real time, and we need to get the latest run.
+        """
+        self.reset_filters()
         self.filter_by_time(self._since, self._until)
         if self._data is not None:
             self._data.refreshFromFiles()
+
+    def reset_filters(self):
+        """
+        Reset the catalog to the original catalog, discarding all filters
+        """
+        self.catalog = self.original_catalog
 
     def _clear_run(self):
         self.run = None
@@ -85,29 +167,55 @@ class SerialAnalysis:
         self._data = None
 
     def get_data(self):
-        filename = get_filename(self.run, convert_local=False)
-        files = getOffFileListFromOneFile(filename, maxChans=400)
+        """
+        Get TES data for current run.
+
+        Returns
+        -------
+        ChannelGroup
+            Group of TES channels
+        """
+        if self.run is None:
+            raise ValueError("run is None!")
+
         if self._data is None:
-            self._data = ChannelGroup(files)
+            self._data = get_data(self.run)
             return self._data
-        elif self._data.offFileNames[0] == files[0]:
+
+        filename = get_filename(self.run)
+        files = getOffFileListFromOneFile(filename, maxChans=400)
+
+        if self._data.offFileNames[0] == files[0]:
             return self._data
         else:
             self._close_data()
-            self._data = ChannelGroup(files)
+            self._data = get_data(self.run)
             return self._data
 
     def summarize_run(self):
-        summarize_run(self.run)
+        run = self.run
+        scanid = run.metadata["start"]["scan_id"]
+        sample = get_samplename(run)
+        scantype = run.start.get("scantype", "None")
+
+        print(f"Scan {scanid}")
+        if "group_md" in run.start:
+            print(f"Group: {run.start['group_md']['name']}")
+        elif "group" in run.start:
+            print(f"Group: {run.start['group']}")
+        print(f"Sample name: {sample}")
+        if scantype == "xas":
+            edge = run.start.get("edge", "Not recorded")
+            print(f"Scantype: {scantype}, edge: {edge}")
+        else:
+            print(f"Scantype: {scantype}")
+        if "last_cal" in run.start:
+            print(f"Calibration: {run.start['last_cal']!s:.8}")
 
     def run_is_corrected(self):
         try:
             data = self.get_data()
-            ds = data.firstGoodChannel()
-            if not hasattr(ds, "filtValue5LagDC"):
-                return False
-            else:
-                return True
+            return data_is_corrected(data)
         except:
             return False
 
@@ -133,54 +241,44 @@ class SerialAnalysis:
         except:
             return False
 
-    def correct_run(self, phaseCorrect=True, **kwargs):
+    def handle_run(self, reprocess=False):
+        """
+        Process current run.
+
+        Parameters
+        ----------
+        phaseCorrect : bool, optional
+            Whether to perform phase correction
+
+        Returns
+        -------
+        bool
+            True if processing succeeded
+        """
         if self.run is None:
             raise ValueError("run is None!")
+
         data = self.get_data()
-        ds = data.firstGoodChannel()
-        state = get_tes_state(self.run)
-        model_path = get_model_file(self.run, self.catalog)
-        data.add5LagRecipes(model_path)
-        data.learnDriftCorrection(
-            indicatorName="pretriggerMean",
-            uncorrectedName=f"filtValue5Lag",
-            correctedName=f"filtValue5LagDC",
-            states=state,
-        )
-        if phaseCorrect:
-            self.calibrate_run(**kwargs)
-            data.learnPhaseCorrection(
-                "filtPhase",
-                "filtValue5LagDC",
-                "filtValue5LagDCPC",
-                states=state,
-                overwriteRecipe=True,
+        uid = self.run.start["uid"]
+        try:
+            processing_info, _ = handle_run(
+                uid,
+                self.catalog,
+                self._save_directory,
+                reprocess=reprocess,
+                data=data,
+                processing_dict=self._default_settings,
             )
+            self._last_processing_info = processing_info
+            if processing_info["success"]:
+                self.load_scandata()
+                return True
 
-    def calibrate_run(self, line_names=None, fvAttr="filtValue5LagDC", **kwargs):
-        state = get_tes_state(self.run)
-        data = self.get_data()
-        if line_names is None:
-            line_names = get_line_names(self.run)
-        data.calibrate(state, line_names, fvAttr, **kwargs)
-        return data
-
-    def handle_run(self, phaseCorrect=True):
-        if "tes" not in self.run.start.get("detectors", []):
-            print("No TES in run, skipping!")
-            return True
-        if self.run.start.get("scantype", "") == "calibration":
-            if not self.run_is_corrected():
-                self.correct_run(phaseCorrect=True)
-            fvAttr = "filtValue5LagDCPC" if phaseCorrect else "filtValue5LagDC"
-            self.calibrate_run(fvAttr=fvAttr)
-        if self.run_is_calibrated():
-            self.save_run()
-            self.load_scandata()
-            return True
-        else:
-            print("No Calibration Exists! Something went wrong")
+        except Exception as e:
+            print(f"Error processing run: {e}")
             return False
+
+        return False
 
     def handle_all_runs(self):
         success = True
@@ -188,21 +286,14 @@ class SerialAnalysis:
             success = self.handle_run() & bool(self.advance_one_run())
 
     def save_run(self):
-        state = get_tes_state(self.run)
-        savename = get_savename(self.run, self._save_directory)
-        os.makedirs(dirname(savename), exist_ok=True)
-        ts, e, ch = get_tes_arrays(self._data, state)
-        print(f"Saving {savename}")
-        np.savez(savename, timestamps=ts, energies=e, channels=ch)
+        """Save processed data for current run."""
+        if self.run is None:
+            raise ValueError("run is None!")
+
+        save_processed_data(self.run, self._data, self._save_directory)
 
     def load_scandata(self):
-        savename = get_savename(self.run, self._save_directory)
-        if exists(savename):
-            data = data_from_file(savename)
-            log = log_from_run(self.run)
-            self.sd = ScanData(data, log)
-        else:
-            self.sd = sd_from_run(self._data, self.run)
+        self.sd = scandata_from_run(self.run, self._save_directory, logtype="run")
 
     def get_scandata(self):
         if self.sd is not None:
@@ -211,9 +302,27 @@ class SerialAnalysis:
             self.load_scandata()
             return self.sd
 
+    def rewind_to_cal(self):
+        """
+        Rewind to the calibration data for the current run.
+        """
+        if self.run.start.get("scantype", "") == "calibration":
+            print("Already at calibration run!")
+            return self.run
+        try:
+            cal_run = get_calibration(self.run, self.catalog)
+            self.run = cal_run
+            return self.run
+        except Exception as e:
+            print(f"Error rewinding to calibration: {e}")
+            return None
+
     def advance_one_run(self):
+        """
+        Advance to the next run in the catalog.
+        """
         uid = self.run.start["uid"]
-        uids = list(self.catalog._catalog.keys())
+        uids = list(self.catalog.keys())
         idx = uids.index(uid)
 
         if idx == len(uids) - 1:
@@ -226,8 +335,11 @@ class SerialAnalysis:
             return self.run
 
     def go_back_one_run(self):
+        """
+        Rewind to the previous run in the catalog.
+        """
         uid = self.run.start["uid"]
-        uids = list(self.catalog._catalog.keys())
+        uids = list(self.catalog.keys())
         idx = uids.index(uid)
 
         if idx == 0:
@@ -240,14 +352,61 @@ class SerialAnalysis:
             return self.run
 
     def advance_to_latest_run(self):
+        """
+        Advance to the latest run in the catalog.
+        """
         self._clear_run()
         self.run = self.catalog[-1]
         return self.run
 
     def advance_to_index(self, index):
+        """
+        Advance to a specific index in the catalog, either by scan_id, index from the end, or
+        by uid.
+
+        Parameters
+        ----------
+        index : int, str, or uid
+            Index in the form of an integer scan_id, a negative integer index from the end, or
+            a uid string.
+        """
         self._clear_run()
         self.run = self.catalog[index]
         return self.run
+
+    def plot_calibration(self, channel, line_names=None):
+        data = self.get_data()
+        ds = data[channel]
+        state = get_tes_state(self.run)
+        if line_names is None:
+            line_names = self._last_processing_info.get(
+                "data_calibration_info", {}
+            ).get("line_names", get_line_names(self.run))
+        if not data_is_calibrated(data):
+            print("Run is not calibrated!")
+            return
+        elif channel in data.whyChanBad:
+            print(f"Channel {channel} is bad: {data.whyChanBad[channel]}")
+            attr = self._last_processing_info.get("data_correction_info", {}).get(
+                "correctedName", "filtValueDC"
+            )
+            plot_calibration_failure(ds, state, data.whyChanBad[channel], close=False)
+            return
+        else:
+            plot_calibration_channel(ds, state, line_names)
+
+    def test_calibrate_channel(self, channel, line_names=None, **kwargs):
+        data = self.get_data()
+        ds = data[channel]
+        state = get_tes_state(self.run)
+        if line_names is None:
+            line_names = get_line_names(self.run)
+        attr = self._last_processing_info.get("data_correction_info", {}).get(
+            "correctedName", "filtValueDC"
+        )
+        ds_info = calibrate_channel(ds, attr, state, line_names, **kwargs)
+        line_names = ds_info["line_names"]
+        self.plot_calibration(channel, line_names)
 
     def get_emission(self, llim, ulim, eres=0.3, channels=None):
         """
@@ -314,16 +473,6 @@ def get_model_file(run, catalog):
     )
     projector_filename = join(projector_base, "projectors.hdf5")
     return projector_filename
-
-
-def get_savename(run, save_directory="/home/decker/processed"):
-    filename = get_filename(run, convert_local=False)
-    date = filename.split("/")[-3]
-    tes_prefix = "_".join(basename(filename).split("_")[:2])
-    state = get_tes_state(run)
-    scanid = run.start["scan_id"]
-    savename = join(save_directory, date, f"{tes_prefix}_{state}_scan_{scanid}.npz")
-    return savename
 
 
 def get_tes_arrays(data, state, attr="energy"):

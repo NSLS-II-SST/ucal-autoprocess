@@ -6,34 +6,111 @@ from .utils import (
 )
 from .calibration import summarize_calibration
 from os.path import join, dirname, exists
-import os
+import pickle
 
 
-def correct_run(run, data, save_directory=None):
+def correct_run(
+    run, data, save_directory=None, correction_dict={}, calibration_dict={}
+):
+    """
+    Correct the run data and save correction results.
+
+    Parameters
+    ----------
+    run : Tiled run
+        The run to correct
+    data : ChannelGroup
+        TES data associated with the run
+    save_directory : str, optional
+        Directory to save correction results
+    correction_dict : dict, optional
+        Dictionary containing correction parameters
+
+    Returns
+    -------
+    dict
+        Correction information
+    """
     state = get_tes_state(run)
+    correction_info = {"state": state}
+    dcIndicatorName = correction_dict.get("dcIndicatorName", "pretriggerMean")
+    dcUncorrectedName = correction_dict.get("dcUncorrectedName", "filtValue")
+    dcCorrectedName = correction_dict.get("dcCorrectedName", dcUncorrectedName + "DC")
+    if correction_dict.get("5lagModelFile", False):
+        model_path = correction_dict["5lagModelFile"]
+        data.add5LagRecipes(model_path)
+        correction_info["5lagModelFile"] = model_path
+        dcUncorrectedName = dcUncorrectedName + "5Lag"
+        dcCorrectedName = dcUncorrectedName + "DC"
+
     print(f"Correcting data for {state}")
+    correction_info["dcIndicatorName"] = dcIndicatorName
+    correction_info["dcUncorrectedName"] = dcUncorrectedName
+    correction_info["dcCorrectedName"] = dcCorrectedName
     data.learnResidualStdDevCut(states=[state], overwriteRecipe=True)
+    correction_info["cutType"] = "residualStdDev"
     data.learnDriftCorrection(
-        indicatorName="pretriggerMean",
-        uncorrectedName="filtValue",
-        correctedName="filtValueDC",
+        indicatorName=dcIndicatorName,
+        uncorrectedName=dcUncorrectedName,
+        correctedName=dcCorrectedName,
         states=state,
         overwriteRecipe=True,
     )
+    correction_info["correctedName"] = dcCorrectedName
+    correction_info["driftCorrected"] = True
+
+    if correction_dict.get("phaseCorrect", False):
+        prelim_cal_dict = {}
+        prelim_cal_dict.update(calibration_dict)
+        prelim_cal_dict["fvAttr"] = dcCorrectedName
+        calibrate_run(
+            run,
+            data,
+            save_directory=None,
+            calibration_dict=prelim_cal_dict,
+            cut_histograms=False,
+        )
+        pcIndicatorName = correction_dict.get("pcIndicatorName", "filtPhase")
+        pcUncorrectedName = dcCorrectedName
+        pcCorrectedName = dcCorrectedName + "PC"
+        data.learnPhaseCorrection(
+            pcIndicatorName,
+            pcUncorrectedName,
+            pcCorrectedName,
+            states=state,
+            overwriteRecipe=True,
+        )
+        correction_info["phaseCorrected"] = True
+        correction_info["pcIndicatorName"] = pcIndicatorName
+        correction_info["pcUncorrectedName"] = pcUncorrectedName
+        correction_info["pcCorrectedName"] = pcCorrectedName
+        correction_info["correctedName"] = pcCorrectedName
+
     if save_directory is not None:
         dc_name = get_correction_file(run, save_directory, make_dirs=True)
         print(f"Saving corrections to {dc_name}")
         data.saveRecipeBooks(dc_name)
-    return data
+        correction_info["correction_file"] = dc_name
+        info_filename = join(dirname(dc_name), "correction_info.pkl")
+        with open(info_filename, "wb") as f:
+            pickle.dump(correction_info, f)
+    return correction_info
 
 
 def load_correction(run, data, save_directory):
     dc_name = get_correction_file(run, save_directory)
+    info_filename = join(dirname(dc_name), "correction_info.pkl")
+
     print(f"Loading correction from {dc_name}")
     if exists(dc_name):
         try:
             data.loadRecipeBooks(dc_name)
-            return True
+            if exists(info_filename):
+                with open(info_filename, "rb") as f:
+                    correction_info = pickle.load(f)
+                return correction_info
+            else:
+                return {"correction_file": dc_name}
         except Exception as e:
             print(f"Got error loading correction: {e}")
             return False
@@ -41,7 +118,9 @@ def load_correction(run, data, save_directory):
         return False
 
 
-def calibrate_run(run, data, save_directory=None):
+def calibrate_run(
+    run, data, save_directory=None, calibration_dict={}, cut_histograms=True
+):
     """
     Calibrate the run data and save calibration results.
 
@@ -61,9 +140,17 @@ def calibrate_run(run, data, save_directory=None):
     """
     line_names = get_line_names(run)
     state = get_tes_state(run)
+    _cal_dict = {}
+    _cal_dict.update(calibration_dict)
+    if "line_names" in _cal_dict:
+        line_names = _cal_dict.pop("line_names")
+
     print(f"Calibrating {state} with lines {line_names}")
 
-    processing_info = data.calibrate(state, line_names, "filtValueDC")
+    fvAttr = _cal_dict.pop("fvAttr", "filtValueDC")
+    processing_info = data.calibrate(
+        state, line_names, fvAttr, cut_histograms=cut_histograms, **_cal_dict
+    )
 
     if save_directory is not None:
         h5name = get_calibration_file(run, save_directory, make_dirs=True)
@@ -73,6 +160,9 @@ def calibrate_run(run, data, save_directory=None):
         summarize_calibration(data, state, line_names, cal_dir, overwrite=True)
         processing_info["calibration_saved"] = True
         processing_info["calibration_file"] = h5name
+        info_filename = join(dirname(h5name), "calibration_info.pkl")
+        with open(info_filename, "wb") as f:
+            pickle.dump(processing_info, f)
 
     return processing_info
 
@@ -84,7 +174,18 @@ def load_calibration(run, data, save_directory):
         print(f"Loading correction from {h5name}")
         try:
             data.calibrationLoadFromHDF5Simple(h5name, recipeName="energy")
-            return True
+            info_filename = join(dirname(h5name), "calibration_info.pkl")
+            if exists(info_filename):
+                with open(info_filename, "rb") as f:
+                    processing_info = pickle.load(f)
+                for key in processing_info["status"].keys():
+                    if not processing_info["status"][key]["success"]:
+                        msg = processing_info["status"][key]["message"]
+                        print(f"Channel {key}: {msg}")
+                        data[key].markBad(msg)
+                return processing_info
+            else:
+                return {"calibration_file": h5name, "calibration_saved": True}
         except Exception as e:
             print(f"Got error loading calibration: {e}")
             return False
@@ -109,9 +210,35 @@ def data_is_corrected(data):
     """
     try:
         ds = data.firstGoodChannel()
-        return "filtValueDC" in ds.recipes.keys()
+        recipes = ds.recipes.keys()
+        possible_dc_recipes = ["filtValueDC", "filtValue5LagDC", "filtValue5LagDCPC"]
+        return any(recipe in recipes for recipe in possible_dc_recipes)
     except Exception as e:
         print(f"Failed to check corrections: {str(e)}")
+        return False
+
+
+def data_is_phase_corrected(data):
+    """
+    Check if run data has phase corrections applied.
+
+    Parameters
+    ----------
+    data : ChannelGroup
+        TES data to check
+
+    Returns
+    -------
+    bool
+        True if corrections are applied
+    """
+    try:
+        ds = data.firstGoodChannel()
+        recipes = ds.recipes.keys()
+        possible_pc_recipes = ["filtValue5LagDCPC"]
+        return any(recipe in recipes for recipe in possible_pc_recipes)
+    except Exception as e:
+        print(f"Failed to check phase corrections: {str(e)}")
         return False
 
 
